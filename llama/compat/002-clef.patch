@@ -1,30 +1,25 @@
 --- a/common/common.cpp
 +++ b/common/common.cpp
-@@ -1240,6 +1240,18 @@
-     std::vector<llama_sampler_seq_config> samplers_seq_config;
- };
+@@ -1191,6 +1191,13 @@ common_decision_type common_get_decision_type(const struct llama_model * model)
+     return common_decision_type_from_string(buf);
+ }
  
-+common_decision_type common_get_decision_type(const llama_model * model) {
-+    char value[128];
-+    if (llama_model_meta_val_str(model, "general.architecture", value, sizeof(value)) < 0) {
-+        return COMMON_DECISION_TYPE_NONE;
-+    }
-+    const std::string key = std::string(value) + ".decision.type";
-+    if (llama_model_meta_val_str(model, key.c_str(), value, sizeof(value)) < 0) {
-+        return COMMON_DECISION_TYPE_NONE;
-+    }
-+    return std::strcmp(value, "clef") == 0 ? COMMON_DECISION_TYPE_CLEF : COMMON_DECISION_TYPE_UNKNOWN;
++bool common_decision_head_external(const struct llama_model * model) {
++    char buf[64];
++    return common_get_decision_type(model) == COMMON_DECISION_TYPE_CLEF &&
++        llama_model_meta_val_str(model, "general.architecture", buf, sizeof(buf)) >= 0 &&
++        std::strcmp(buf, "clef") != 0;
 +}
 +
  common_init_result::common_init_result(common_params & params, bool model_only) :
      pimpl(new impl{}) {
      auto mparams = common_model_params_to_llama(params);
-@@ -1291,6 +1303,18 @@
-     }
- 
-     const llama_vocab * vocab = llama_model_get_vocab(model);
-+
-+    if (common_get_decision_type(model) == COMMON_DECISION_TYPE_CLEF) {
+@@ -1246,7 +1253,17 @@ common_init_result::common_init_result(common_params & params, bool model_only)
+     // these decision models return a score for each token via the embeddings output
+     // TODO: maybe improve this in the future
+     const auto decision_type = common_get_decision_type(model);
+-    if (decision_type == COMMON_DECISION_TYPE_LAYA || decision_type == COMMON_DECISION_TYPE_KEV || decision_type == COMMON_DECISION_TYPE_CLEF) {
++    if (common_decision_head_external(model)) {
 +        params.embedding = cparams.embeddings = true;
 +        cparams.ctx_type = LLAMA_CONTEXT_TYPE_DECISION;
 +        params.pooling_type = cparams.pooling_type = LLAMA_POOLING_TYPE_NONE;
@@ -34,57 +29,72 @@
 +        params.n_ubatch = cparams.n_ubatch = n_ctx;
 +        params.n_outputs_max = cparams.n_outputs_max = n_ctx;
 +        params.n_outputs_max_per_seq = cparams.n_outputs_max_per_seq = 1;
-+    }
++    } else if (decision_type == COMMON_DECISION_TYPE_LAYA || decision_type == COMMON_DECISION_TYPE_KEV || decision_type == COMMON_DECISION_TYPE_CLEF) {
+         params.embedding    = true;
+         params.pooling_type = LLAMA_POOLING_TYPE_NONE;
  
-     // load and optionally apply lora adapters
-     for (auto & la : params.lora_adapters) {
 --- a/common/common.h
 +++ b/common/common.h
-@@ -940,6 +940,14 @@
+@@ -965,6 +965,10 @@ enum common_decision_type {
  
- struct common_sampler;
+ common_decision_type common_get_decision_type(const struct llama_model * model);
  
-+enum common_decision_type {
-+    COMMON_DECISION_TYPE_NONE,
-+    COMMON_DECISION_TYPE_CLEF,
-+    COMMON_DECISION_TYPE_UNKNOWN,
-+};
-+
-+common_decision_type common_get_decision_type(const struct llama_model * model);
++// Clef GGUFs converted by Ollama: a qwen35 backbone with the joint head stored as clef.* tensors,
++// evaluated outside the graph from the hidden states (the native clef architecture runs it in the graph)
++bool common_decision_head_external(const struct llama_model * model);
 +
  // note: defines the model, context, samplers, ets. lifetimes
  struct common_init_result {
      common_init_result(common_params & params, bool model_only = false);
---- a/tools/server/server-task.h
-+++ b/tools/server/server-task.h
-@@ -152,6 +152,7 @@
-     // used by SERVER_TASK_TYPE_INFERENCE
-     task_params   params;
-     server_tokens tokens;
-+    common_json score_fields; // optional decision question and option spans
+--- a/include/llama.h
++++ b/include/llama.h
+@@ -224,6 +224,7 @@ extern "C" {
+     enum llama_context_type {
+         LLAMA_CONTEXT_TYPE_DEFAULT = 0,
+         LLAMA_CONTEXT_TYPE_MTP     = 1,
++        LLAMA_CONTEXT_TYPE_DECISION = 2, // hidden states without vocabulary logits
+     };
  
-     // only used by CLI, this allow tokenizing CLI inputs on server side
-     // we need this because mtmd_context and vocab are not accessible outside of server_context
-@@ -452,6 +453,7 @@
- };
+     // TODO: simplify (https://github.com/ggml-org/llama.cpp/pull/9294#pullrequestreview-2286561979)
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -27,6 +27,7 @@
  
- struct server_task_result_embd : server_task_result {
-+    common_json score_logits;
-     std::vector<std::vector<float>> embedding;
+ static llm_graph_type ctx_type_to_graph_type(llama_context_type ctx_type) {
+     switch (ctx_type) {
++        case LLAMA_CONTEXT_TYPE_DECISION:
+         case LLAMA_CONTEXT_TYPE_DEFAULT: return LLM_GRAPH_TYPE_DEFAULT;
+         case LLAMA_CONTEXT_TYPE_MTP    : return LLM_GRAPH_TYPE_DECODER_MTP;
+     }
+@@ -2131,7 +2132,7 @@ uint32_t llama_context::output_reserve(int32_t n_outputs) {
+     const auto n_embd     = hparams.n_embd;
+     const auto n_embd_out = hparams.n_embd_out();
  
-     int32_t n_tokens;
---- a/tools/server/server-task.cpp
-+++ b/tools/server/server-task.cpp
-@@ -1464,6 +1464,9 @@
- // server_task_result_embd
- //
- json server_task_result_embd::to_json() {
-+    if (!score_logits.is_null()) {
-+        return json {{"logits", score_logits}, {"tokens_evaluated", n_tokens}};
+-    bool has_logits     = true;
++    bool has_logits     = cparams.ctx_type != LLAMA_CONTEXT_TYPE_DECISION;
+     bool has_embd       = cparams.embeddings;
+     bool has_embd_nextn = cparams.embeddings_nextn;
+ 
+--- a/src/models/qwen35.cpp
++++ b/src/models/qwen35.cpp
+@@ -229,11 +229,12 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
+         ggml_build_forward_expand(gf, embd);
+     }
+ 
+-    // LM head
+-    cur = build_lora_mm(model.output, cur, model.output_s);
+-
+-    cb(cur, "result_output", -1);
+-    res->t_logits = cur;
++    // Decision heads consume the hidden states, not vocabulary logits.
++    if (cparams.ctx_type != LLAMA_CONTEXT_TYPE_DECISION) {
++        cur = build_lora_mm(model.output, cur, model.output_s);
++        cb(cur, "result_output", -1);
++        res->t_logits = cur;
 +    }
-     return res_type == TASK_RESPONSE_TYPE_OAI_EMBD
-         ? to_json_oaicompat()
-         : to_json_non_oaicompat();
+ 
+     ggml_build_forward_expand(gf, cur);
+ }
 --- a/tools/server/server-context.cpp
 +++ b/tools/server/server-context.cpp
 @@ -1,4 +1,5 @@
@@ -92,8 +102,8 @@
 +#include "clef.h"
  #include "server-chat.h"
  #include "server-common.h"
- #include "server-http.h"
-@@ -247,6 +248,7 @@
+ #include "server-decision.h"
+@@ -239,6 +240,7 @@ struct server_slot {
      // multimodal
      mtmd_context * mctx = nullptr;
      mtmd::batch_ptr mbatch = nullptr;
@@ -101,7 +111,7 @@
  
      // speculative decoding
      common_speculative * spec;
-@@ -370,6 +372,7 @@
+@@ -365,6 +367,7 @@ struct server_slot {
          SLT_DBG(*this, "%s", "\n");
  
          spec_is_replay = false;
@@ -109,26 +119,27 @@
  
          last_nl_pos    = 0;
          generated_text = "";
-@@ -428,6 +431,18 @@
- 
-         SLT_TRC(*this, "init sampler, took %0.2f ms, tokens: text = %d, total = %d\n",
+@@ -425,6 +428,19 @@ struct server_slot {
                  (ggml_time_us() - t_start) / 1000.0, n_text, (int) prompt.tokens.size());
-+    }
-+
-+    void collect_score_embeddings(const llama_batch & batch) {
+     }
+ 
++    // rows [0, n_tokens) of the last decode; batch == nullptr: all of them belong to this slot
++    void collect_score_embeddings(int32_t n_tokens, const common_batch * batch) {
 +        if (!task || task->score_fields.is_null()) return;
 +        // Embedding mode returns every token, including image tokens with logits disabled.
 +        const int width = llama_model_n_embd_out(llama_get_model(ctx_tgt));
-+        for (int i = 0; i < batch.n_tokens; ++i) {
-+            if (batch.seq_id[i][0] != id) continue;
++        for (int32_t i = 0; i < n_tokens; ++i) {
++            if (batch && batch->tokens[i].seq_id != id) continue;
 +            const float * row = llama_get_embeddings_ith(ctx_tgt, i);
 +            if (!row) throw std::runtime_error("decision model did not return hidden states");
 +            score_embeddings.emplace_back(row, row + width);
 +        }
-     }
- 
++    }
++
      bool need_embd() const {
-@@ -748,9 +763,7 @@
+         GGML_ASSERT(task);
+         return task->need_embd();
+@@ -765,9 +781,7 @@ struct server_slot {
  // returns 0 on success
  // caller need to update prompt.tokens after a successful call to keep track of the processing progress
  // note: this is not a member of server_slot because we want to run it inside yield_to_queue
@@ -139,24 +150,30 @@
      GGML_ASSERT(slot.mctx);
      const auto & mctx = slot.mctx;
      const auto & input_tokens = slot.task->tokens;
-@@ -761,12 +774,11 @@
-         if (mbatch) {
-             float * embd = mtmd_batch_get_output_embd(mbatch.get(), chunk.get());
-             if (embd) {
--                void * cb_data = slot.spec;
-+                void * cb_data = &slot;
-                 static auto cb = [](llama_batch batch, void * user_data) {
--                    common_speculative * spec = static_cast<common_speculative *>(user_data);
--                    if (!common_speculative_process(spec, batch)) {
--                        return 1;
--                    }
-+                    auto & slot = *static_cast<server_slot *>(user_data);
-+                    if (!common_speculative_process(slot.spec, batch)) return 1;
-+                    slot.collect_score_embeddings(batch);
-                     return 0;
+@@ -781,7 +795,8 @@ static int process_mtmd_chunk(const server_slot & slot, mtmd::batch_ptr & mbatch
+                 struct cb_data_t {
+                     common_speculative * spec;
+                     llama_context * ctx;
+-                } cb_data = { slot.spec, slot.ctx_tgt };
++                    server_slot * slot;
++                } cb_data = { slot.spec, slot.ctx_tgt, &slot };
+ 
+                 static auto cb = [](const mtmd_helper_embd_batch * b, void * user_data) {
+                     const auto * data = static_cast<cb_data_t *>(user_data);
+@@ -795,7 +810,11 @@ static int process_mtmd_chunk(const server_slot & slot, mtmd::batch_ptr & mbatch
+                         batch.add_embd({ b->embd + (size_t) i * b->n_embd, 1, (size_t) b->n_embd }, pos, b->seq_id, false);
+                     }
+ 
+-                    return common_speculative_process(data->spec, batch) ? 0 : 1;
++                    if (!common_speculative_process(data->spec, batch)) {
++                        return 1;
++                    }
++                    data->slot->collect_score_embeddings(b->n_tokens, nullptr);
++                    return 0;
                  };
  
-@@ -849,6 +861,7 @@
+                 llama_pos new_n_past; // unused for now
+@@ -877,6 +896,7 @@ public:
      //  - when not in sleeping state
      //  - and, with thread-safe APIs (e.g., tokenizer calls)
      llama_model * model_tgt = nullptr;
@@ -164,11 +181,22 @@
  
      mtmd_context * mctx = nullptr;
      // note: video_params.ffmpeg_bin_dir points into params_base, which outlives this struct
-@@ -2166,6 +2179,20 @@
-         res->index     = slot.task->index;
+@@ -1163,7 +1183,10 @@ private:
+         vocab = llama_model_get_vocab(model_tgt);
+ 
+         try {
+-            decision.init(model_tgt);
++            // the external Clef head is served through score_fields, not /v1/systemone
++            if (!common_decision_head_external(model_tgt)) {
++                decision.init(model_tgt);
++            }
+         } catch (const std::exception & e) {
+             SRV_ERR("failed to init decision model: %s\n", e.what());
+             return false;
+@@ -2223,6 +2246,20 @@ private:
          res->n_tokens  = slot.task->n_tokens();
          res->res_type  = slot.task->params.res_type;
-+
+ 
 +        if (!slot.task->score_fields.is_null()) {
 +            try {
 +                if (!clef) clef.reset(new clef_head(params_base.model.path));
@@ -182,29 +210,30 @@
 +            queue_results.send(std::move(res));
 +            return;
 +        }
- 
++
          const int n_embd_out = llama_model_n_embd_out(model_tgt);
  
-@@ -3814,6 +3841,7 @@
+         std::vector<float> embd_res(n_embd_out, 0.0f);
+@@ -4002,6 +4039,7 @@ private:
          };
  
          iterate(slots, [&](server_slot & slot) {
-+            slot.collect_score_embeddings(batch_view);
++            slot.collect_score_embeddings(batch.view.size(), &batch.view);
              // optionally send prompt processing progress
              if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_DONE_PROMPT) {
                  if (slot.task->params.stream && slot.task->params.return_progress) {
-@@ -4274,6 +4302,10 @@
+@@ -4482,6 +4520,10 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
      GGML_ASSERT(type == SERVER_TASK_TYPE_COMPLETION || type == SERVER_TASK_TYPE_INFILL);
  
      auto res = create_response();
-+    if (common_get_decision_type(ctx_server.model_tgt) == COMMON_DECISION_TYPE_CLEF) {
++    if (common_decision_head_external(ctx_server.model_tgt)) {
 +        res->error(format_error_response("This model requires a decision request", ERROR_TYPE_INVALID_REQUEST));
 +        return res;
 +    }
      auto completion_id = gen_chatcmplid();
      auto & rd = res->rd;
      auto & params = this->params;
-@@ -5466,6 +5498,43 @@
+@@ -5780,6 +5822,43 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
              // OAI-compat
              task.params.res_type = res_type;
              task.params.embd_normalize = embd_normalize;
@@ -248,52 +277,33 @@
  
              tasks.push_back(std::move(task));
          }
---- a/include/llama.h
-+++ b/include/llama.h
-@@ -224,6 +224,7 @@
-     enum llama_context_type {
-         LLAMA_CONTEXT_TYPE_DEFAULT = 0,
-         LLAMA_CONTEXT_TYPE_MTP     = 1,
-+        LLAMA_CONTEXT_TYPE_DECISION = 2, // hidden states without vocabulary logits
-     };
- 
-     // TODO: simplify (https://github.com/ggml-org/llama.cpp/pull/9294#pullrequestreview-2286561979)
---- a/src/llama-context.cpp
-+++ b/src/llama-context.cpp
-@@ -27,6 +27,7 @@
- 
- static llm_graph_type ctx_type_to_graph_type(llama_context_type ctx_type) {
-     switch (ctx_type) {
-+        case LLAMA_CONTEXT_TYPE_DECISION:
-         case LLAMA_CONTEXT_TYPE_DEFAULT: return LLM_GRAPH_TYPE_DEFAULT;
-         case LLAMA_CONTEXT_TYPE_MTP    : return LLM_GRAPH_TYPE_DECODER_MTP;
-     }
-@@ -2112,7 +2113,7 @@
-     const auto n_embd     = hparams.n_embd;
-     const auto n_embd_out = hparams.n_embd_out();
- 
--    bool has_logits     = true;
-+    bool has_logits     = cparams.ctx_type != LLAMA_CONTEXT_TYPE_DECISION;
-     bool has_embd       = cparams.embeddings;
-     bool has_embd_nextn = cparams.embeddings_nextn;
- 
---- a/src/models/qwen35.cpp
-+++ b/src/models/qwen35.cpp
-@@ -215,11 +215,12 @@
-     cb(cur, "result_norm", -1);
-     res->t_embd = cur;
- 
--    // LM head
--    cur = build_lora_mm(model.output, cur, model.output_s);
--
--    cb(cur, "result_output", -1);
--    res->t_logits = cur;
-+    // Decision heads consume the hidden states, not vocabulary logits.
-+    if (cparams.ctx_type != LLAMA_CONTEXT_TYPE_DECISION) {
-+        cur = build_lora_mm(model.output, cur, model.output_s);
-+        cb(cur, "result_output", -1);
-+        res->t_logits = cur;
+--- a/tools/server/server-task.cpp
++++ b/tools/server/server-task.cpp
+@@ -1464,6 +1464,9 @@ json server_task_result_cmpl_partial::to_json_anthropic() {
+ // server_task_result_embd
+ //
+ json server_task_result_embd::to_json() {
++    if (!score_logits.is_null()) {
++        return json {{"logits", score_logits}, {"tokens_evaluated", n_tokens}};
 +    }
+     return res_type == TASK_RESPONSE_TYPE_OAI_EMBD
+         ? to_json_oaicompat()
+         : to_json_non_oaicompat();
+--- a/tools/server/server-task.h
++++ b/tools/server/server-task.h
+@@ -155,6 +155,7 @@ struct server_task {
+     // used by SERVER_TASK_TYPE_INFERENCE
+     task_params   params;
+     server_tokens tokens;
++    common_json score_fields; // optional decision question and option spans
  
-     ggml_build_forward_expand(gf, cur);
- }
+     // only used by CLI, this allow tokenizing CLI inputs on server side
+     // we need this because mtmd_context and vocab are not accessible outside of server_context
+@@ -484,6 +485,7 @@ struct server_task_result_cmpl_partial : server_task_result {
+ };
+ 
+ struct server_task_result_embd : server_task_result {
++    common_json score_logits;
+     std::vector<std::vector<float>> embedding;
+ 
+     int32_t n_tokens;
