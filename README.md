@@ -34,8 +34,8 @@ or call `POST /api/train`. This trains an adapter on the running base model and 
 - **llama.cpp source:**
   - `LLAMA_CPP_VERSION` pins a llama.cpp-classifier commit.
   - `llama/server/CMakeLists.txt` and `cmake/local.cmake` fetch it from `fletto2/llama.cpp-classifier` with a full clone, so the pin may be any commit of the fork.
-  - `llama/compat/001-llama-cpp-hooks.patch` and `002-clef.patch` are Ollama's patches, rebased onto that base.
-  - Ollama-converted Clef models (a `qwen35` backbone + `clef.*` tensors) still use Ollama's head through `score_fields`, with the same scores as upstream Ollama.
+  - Ollama's two compat patches in `llama/compat/` (the hooks patch and the decision-head patch) are rebased onto that base.
+  - Ollama-converted decision models (a `qwen35` backbone with the decision head stored as separate tensors) still use Ollama's head through `score_fields`, with the same scores as upstream Ollama.
 - **Go:**
   - `ADAPTER` / `CLASSIFIER` in the Modelfile parser, `ollama create` and the model layers (`application/vnd.ollama.image.adapter`, `application/vnd.ollama.image.classifier`)
   - the runner flags `--lora`, `--classifier`, `--lora-train`, `--lora-train-dir` (`<models>/lora-train`)

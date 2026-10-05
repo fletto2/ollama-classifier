@@ -39,8 +39,8 @@
  
  common_decision_type common_get_decision_type(const struct llama_model * model);
  
-+// Clef GGUFs converted by Ollama: a qwen35 backbone with the joint head stored as clef.* tensors,
-+// evaluated outside the graph from the hidden states (the native clef architecture runs it in the graph)
++// Decision-model GGUFs converted by Ollama: a qwen35 backbone with the joint head stored as separate
++// tensors, evaluated outside the graph from the hidden states (the native architecture runs it in the graph)
 +bool common_decision_head_external(const struct llama_model * model);
 +
  // note: defines the model, context, samplers, ets. lifetimes
@@ -186,7 +186,7 @@
  
          try {
 -            decision.init(model_tgt);
-+            // the external Clef head is served through score_fields, not /v1/systemone
++            // the external decision head is served through score_fields, not the native decision endpoint
 +            if (!common_decision_head_external(model_tgt)) {
 +                decision.init(model_tgt);
 +            }
