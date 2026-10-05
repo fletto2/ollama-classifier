@@ -1335,7 +1335,7 @@ type TrainRequest struct {
 	Epochs       int     `json:"epochs,omitempty"`  // default 1
 	NumCtx       int     `json:"num_ctx,omitempty"` // tokens per training window, a multiple of 256; default 256
 	Targets      string  `json:"targets,omitempty"` // comma-separated weights, default attention + FFN
-	Seed         int     `json:"seed,omitempty"`
+	Seed         *int    `json:"seed,omitempty"`    // initialisation of the adapter's A matrices
 
 	// Priority is "idle" (default: train only while the model serves no request) or "shared".
 	Priority string `json:"priority,omitempty"`

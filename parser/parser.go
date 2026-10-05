@@ -122,7 +122,10 @@ func (f Modelfile) CreateRequest(relativeDir string) (*api.CreateRequest, error)
 				return nil, err
 			}
 
-			req.Adapters = digestMap
+			if req.Adapters == nil {
+				req.Adapters = make(map[string]string)
+			}
+			maps.Copy(req.Adapters, digestMap)
 		case "classifier":
 			path, err := expandPath(c.Args, relativeDir)
 			if err != nil {

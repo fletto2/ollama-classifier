@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -51,11 +53,17 @@ func resolveLocalGGUFModel(c *gin.Context, requested string) (*Model, model.Name
 // loaded model; one typed-decision response per input (an object for a string input, an array
 // for a list of strings).
 func (s *Server) ClassifyHandler(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32<<20)
 	var req api.ClassifyRequest
 	if err := c.ShouldBindJSON(&req); errors.Is(err, io.EOF) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "missing request body"})
 		return
 	} else if err != nil {
+		var sizeErr *http.MaxBytesError
+		if errors.As(err, &sizeErr) {
+			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body must not exceed 32 MiB"})
+			return
+		}
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -78,7 +86,7 @@ func (s *Server) ClassifyHandler(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "input must be a string or a list of strings"})
 		return
 	}
-	if len(inputs) == 0 {
+	if len(inputs) == 0 || slices.Contains(inputs, "") {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "input must not be empty"})
 		return
 	}
@@ -99,7 +107,7 @@ func (s *Server) ClassifyHandler(c *gin.Context) {
 	}
 	classifier, ok := r.(llm.Classifier)
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("the runner of model %q does not support classifier heads", req.Model)})
+		c.JSON(http.StatusNotImplemented, gin.H{"error": fmt.Sprintf("the runner of model %q does not support classifier heads", req.Model)})
 		return
 	}
 	results, err := classifier.Classify(c.Request.Context(), inputs)
@@ -124,13 +132,20 @@ func (s *Server) ClassifyHandler(c *gin.Context) {
 
 // TrainHandler trains a LoRA adapter on the loaded base model (llama-server --lora-train, enabled
 // with OLLAMA_LORA_TRAIN=1), streams the progress, and saves the base model's layers plus the
-// adapter as a new model.
+// adapter as a new model. The base model must not have adapters of its own: training runs on the
+// bare base weights.
 func (s *Server) TrainHandler(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<20)
 	var req api.TrainRequest
 	if err := c.ShouldBindJSON(&req); errors.Is(err, io.EOF) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "missing request body"})
 		return
 	} else if err != nil {
+		var sizeErr *http.MaxBytesError
+		if errors.As(err, &sizeErr) {
+			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request body must not exceed 64 MiB"})
+			return
+		}
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -152,6 +167,21 @@ func (s *Server) TrainHandler(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if newName.EqualFold(baseName) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "the new model must have a different name than the base model"})
+		return
+	}
+	if len(m.AdapterPaths) > 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("model %q already has LoRA adapters; train from a model without adapters", req.Model)})
+		return
+	}
+
+	// the new model is built from the base model as it is now, not as it may be after training
+	baseLayers, baseConfig, err := parseFromModel(c.Request.Context(), baseName, func(api.ProgressResponse) {})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	r, _, _, err := s.scheduleRunner(c.Request.Context(), m, []model.Capability{}, nil, req.KeepAlive, nil)
 	if err != nil {
@@ -160,22 +190,18 @@ func (s *Server) TrainHandler(c *gin.Context) {
 	}
 	trainer, ok := r.(llm.LoRATrainer)
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("the runner of model %q does not support LoRA training", req.Model)})
+		c.JSON(http.StatusNotImplemented, gin.H{"error": fmt.Sprintf("the runner of model %q does not support LoRA training", req.Model)})
 		return
 	}
 
-	tmp, err := os.CreateTemp("", "ollama-lora-*.gguf")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	adapterPath := tmp.Name()
-	tmp.Close()
-
+	// the runner writes the adapter to its --lora-train-dir; it is not registered with the runner
+	file := fmt.Sprintf("ollama-%d.gguf", time.Now().UnixNano())
+	adapterPath := filepath.Join(llm.LoRATrainDir(), file)
 	body := map[string]any{
 		"text":     req.Text,
 		"name":     req.Name,
-		"path":     adapterPath,
+		"file":     file,
+		"register": false,
 		"rank":     cmpOr(req.Rank, 8),
 		"lr":       cmpOr(req.LearningRate, 1e-4),
 		"epochs":   cmpOr(req.Epochs, 1),
@@ -188,8 +214,8 @@ func (s *Server) TrainHandler(c *gin.Context) {
 	if req.Targets != "" {
 		body["targets"] = req.Targets
 	}
-	if req.Seed != 0 {
-		body["seed"] = req.Seed
+	if req.Seed != nil {
+		body["seed"] = *req.Seed
 	}
 
 	ctx := c.Request.Context()
@@ -219,19 +245,29 @@ func (s *Server) TrainHandler(c *gin.Context) {
 			fail(err)
 			return
 		}
+		// stop the job on any early return (client gone, polling error); a finished job ignores the cancel
+		finished := false
+		defer func() {
+			if !finished {
+				cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_ = trainer.CancelLoRATrain(cctx, job.ID)
+			}
+		}()
+
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for job.Status == "queued" || job.Status == "running" {
 			select {
 			case <-ctx.Done():
-				// the client went away: stop the job
-				_ = trainer.CancelLoRATrain(context.Background(), job.ID)
 				return
 			case <-ticker.C:
 			}
 			jobs, err := trainer.LoRATrainJobs(ctx)
 			if err != nil {
-				fail(err)
+				if ctx.Err() == nil {
+					fail(err)
+				}
 				return
 			}
 			for _, j := range jobs {
@@ -245,6 +281,7 @@ func (s *Server) TrainHandler(c *gin.Context) {
 			}
 			send(api.ProgressResponse{Status: status, Total: job.NSteps, Completed: job.Step})
 		}
+		finished = true
 		if job.Status != "done" {
 			fail(fmt.Errorf("training %s: %s", job.Status, job.Error))
 			return
@@ -253,11 +290,6 @@ func (s *Server) TrainHandler(c *gin.Context) {
 		fn := func(resp api.ProgressResponse) { send(resp) }
 		fn(api.ProgressResponse{Status: fmt.Sprintf("trained %d steps, loss %.3f -> %.3f", job.NSteps, job.LossFirst, job.LossLast)})
 
-		baseLayers, config, err := parseFromModel(ctx, baseName, fn)
-		if err != nil {
-			fail(err)
-			return
-		}
 		f, err := os.Open(adapterPath)
 		if err != nil {
 			fail(err)
@@ -269,7 +301,8 @@ func (s *Server) TrainHandler(c *gin.Context) {
 			fail(err)
 			return
 		}
-		layers := append(baseLayers, &modelLayer{Layer: layer})
+		layers := append(slices.Clone(baseLayers), &modelLayer{Layer: layer})
+		config := baseConfig
 		if err := createModel(ctx, api.CreateRequest{Model: newName.String()}, newName, layers, &config, fn); err != nil {
 			fail(err)
 			return

@@ -275,6 +275,13 @@ func (s *Server) CreateHandler(c *gin.Context) {
 			send(gin.H{"error": errRemoteAdapterUnsupported.Error(), "status": http.StatusBadRequest})
 			return
 		}
+		// adapters and classifier heads run in llama-server: they need a GGUF model layer (not e.g. an MLX model)
+		if len(r.Adapters)+len(r.Classifiers) > 0 && !slices.ContainsFunc(baseLayers, func(l *modelLayer) bool {
+			return l.MediaType == "application/vnd.ollama.image.model" && l.GGUF != nil
+		}) {
+			send(gin.H{"error": errAdaptersUnsupported.Error(), "status": http.StatusBadRequest})
+			return
+		}
 		if !remote && r.Adapters != nil {
 			adapterLayers, err := convertModelFromFilesWithMediaType(reqCtx, r.Adapters, manifest.MediaTypeImageAdapter, false, fn)
 			if err != nil {

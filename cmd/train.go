@@ -29,6 +29,7 @@ func trainCmd() *cobra.Command {
 	cmd.Flags().Int("num-ctx", 256, "Tokens per training window (a multiple of 256)")
 	cmd.Flags().String("targets", "", "Comma-separated weights to adapt (default attention + FFN)")
 	cmd.Flags().String("priority", "idle", "idle: train only while the model serves no request; shared: also between requests")
+	cmd.Flags().Int("seed", -1, "Seed of the adapter initialisation (default: the server's)")
 	return cmd
 }
 
@@ -48,6 +49,7 @@ func TrainHandler(cmd *cobra.Command, args []string) error {
 	numCtx, _ := cmd.Flags().GetInt("num-ctx")
 	targets, _ := cmd.Flags().GetString("targets")
 	priority, _ := cmd.Flags().GetString("priority")
+	seed, _ := cmd.Flags().GetInt("seed")
 
 	client, err := api.ClientFromEnvironment()
 	if err != nil {
@@ -94,6 +96,9 @@ func TrainHandler(cmd *cobra.Command, args []string) error {
 		NumCtx:       numCtx,
 		Targets:      targets,
 		Priority:     priority,
+	}
+	if seed >= 0 {
+		req.Seed = &seed
 	}
 	if err := client.Train(cmd.Context(), req, fn); err != nil {
 		return err

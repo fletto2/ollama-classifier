@@ -7,9 +7,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 
 	"github.com/ollama/ollama/api"
+	"github.com/ollama/ollama/envconfig"
 )
+
+// LoRATrainDir is where runners started with --lora-train write trained adapters (--lora-train-dir);
+// it is on the models disk, next to the blobs.
+func LoRATrainDir() string {
+	return filepath.Join(envconfig.Models(), "lora-train")
+}
 
 // Classifier is implemented by runners that serve classifier heads on the loaded model
 // (llama-server --classifier, POST /classify).
@@ -28,7 +36,7 @@ type LoRATrainJob struct {
 	LossLast  float64 `json:"loss_last"`
 	LossEpoch float64 `json:"loss_epoch"`
 	Path      string  `json:"path"`
-	AdapterID int     `json:"adapter_id"`
+	AdapterID *int    `json:"adapter_id,omitempty"` // set when the adapter was registered with the runner
 	Error     string  `json:"error"`
 }
 
@@ -90,6 +98,10 @@ func (s *llamaServerRunner) Classify(ctx context.Context, inputs []string) ([]ap
 	if len(inputs) == 0 {
 		return nil, api.StatusError{StatusCode: http.StatusBadRequest, ErrorMessage: "input must not be empty"}
 	}
+	if err := s.sem.Acquire(ctx, 1); err != nil {
+		return nil, err
+	}
+	defer s.sem.Release(1)
 	var out []api.ClassifyResponse
 	if err := s.serverJSON(ctx, http.MethodPost, "/classify", map[string]any{"input": inputs}, &out); err != nil {
 		return nil, err

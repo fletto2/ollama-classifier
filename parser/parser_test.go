@@ -85,6 +85,20 @@ CLASSIFIER ./head.gguf
 	assert.Contains(t, modelfile.String(), "CLASSIFIER ./head.gguf")
 }
 
+func TestCreateRequestSeveralAdapters(t *testing.T) {
+	dir := t.TempDir()
+	for _, f := range []string{"a.gguf", "b.gguf"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte(f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	modelfile, err := ParseFile(strings.NewReader("FROM base\nADAPTER ./a.gguf\nADAPTER ./b.gguf\n"))
+	require.NoError(t, err)
+	req, err := modelfile.CreateRequest(dir)
+	require.NoError(t, err)
+	assert.Len(t, req.Adapters, 2)
+}
+
 func TestCreateRequestDraftFiles(t *testing.T) {
 	dir := t.TempDir()
 	draft := filepath.Join(dir, "draft.gguf")
