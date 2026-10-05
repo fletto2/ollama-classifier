@@ -25,7 +25,9 @@ ollama train BASE NEW -f data.txt [--rank 8 --lr 1e-4 --epochs 1 --num-ctx 256 -
 
 or call `POST /api/train`. This trains an adapter on the running base model and saves `NEW` = `BASE` + the adapter.
 - With `--priority idle`, training steps run only while the model is not serving requests.
-- With this setting, runners load weights without CPU repacking.
+- `OLLAMA_LORA_TRAIN=1` applies to every runner the server starts. They load weights without CPU repacking, which slows prompt processing on CPU for all models. The training context also needs memory beyond Ollama's estimate.
+- `BASE` must be a GGUF model without adapters, and `NEW` must be a different name; an existing model called `NEW` is replaced.
+- Recurrent/hybrid (e.g. Qwen3.5), MoE and diffusion models can't be trained: some of their ops have no backward pass.
 
 ## What differs from upstream Ollama
 
@@ -36,7 +38,7 @@ or call `POST /api/train`. This trains an adapter on the running base model and 
   - Ollama-converted Clef models (a `qwen35` backbone + `clef.*` tensors) still use Ollama's head through `score_fields`, with the same scores as upstream Ollama.
 - **Go:**
   - `ADAPTER` / `CLASSIFIER` in the Modelfile parser, `ollama create` and the model layers (`application/vnd.ollama.image.adapter`, `application/vnd.ollama.image.classifier`)
-  - the runner flags `--lora`, `--classifier`, `--lora-train`
+  - the runner flags `--lora`, `--classifier`, `--lora-train`, `--lora-train-dir` (`<models>/lora-train`)
   - `POST /api/classify`, `POST /api/train`, `ollama train`
   - `OLLAMA_LORA_TRAIN`
 
