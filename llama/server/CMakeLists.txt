@@ -182,7 +182,7 @@ FetchContent_Declare(
     llama_cpp
     GIT_REPOSITORY "https://github.com/fletto2/llama.cpp-classifier.git"
     GIT_TAG ${LLAMA_CPP_GIT_TAG}
-    GIT_SHALLOW TRUE
+    GIT_SHALLOW FALSE # full clone: the pin may be any commit of the fork, not only a branch tip
     ${_ollama_compat_patch_cmd}
 )
 FetchContent_MakeAvailable(llama_cpp)

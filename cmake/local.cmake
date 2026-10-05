@@ -128,7 +128,7 @@ else()
         ExternalProject_Add(ollama-llama-cpp-source
             GIT_REPOSITORY "https://github.com/fletto2/llama.cpp-classifier.git"
             GIT_TAG ${OLLAMA_LLAMA_CPP_GIT_TAG}
-            GIT_SHALLOW TRUE
+            GIT_SHALLOW FALSE # full clone: the pin may be any commit of the fork, not only a branch tip
             SOURCE_DIR ${OLLAMA_LLAMA_CPP_SOURCE_DIR}
             CONFIGURE_COMMAND ""
             BUILD_COMMAND ""
