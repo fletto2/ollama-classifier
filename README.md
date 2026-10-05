@@ -1,6 +1,6 @@
 # ollama-classifier
 
-This is [Ollama](https://github.com/ollama/ollama), built on [llama.cpp-classifier](https://github.com/fletto2/llama.cpp-classifier) instead of upstream llama.cpp. llama.cpp-classifier is upstream llama.cpp plus **per-context early exit**: `llama_set_n_layer_exit(ctx, L)` lets a classifier context share one loaded model with text generation. See that repo's README for how the classifier works. Everything else here is unchanged upstream Ollama; for installation, usage, the API and the full documentation, see the [official Ollama README](https://github.com/ollama/ollama/blob/main/README.md).
+This is [Ollama](https://github.com/ollama/ollama), built on [llama.cpp-classifier](https://github.com/fletto2/llama.cpp-classifier) instead of upstream llama.cpp. llama.cpp-classifier is upstream llama.cpp plus **per-context early exit** (`llama_set_n_layer_exit(ctx, L)`: a classifier context shares one loaded model with text generation) and **embedded GGUF LoRA training** (train adapters in C/C++ on a frozen, even quantized, base with `llama-finetune --lora-rank`). See that repo's README for both. Everything else here is unchanged upstream Ollama; for installation, usage, the API and the full documentation, see the [official Ollama README](https://github.com/ollama/ollama/blob/main/README.md).
 
 ## What differs from upstream Ollama
 
