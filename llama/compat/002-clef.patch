@@ -1,7 +1,7 @@
 --- a/common/common.cpp
 +++ b/common/common.cpp
-@@ -1191,6 +1191,13 @@ common_decision_type common_get_decision_type(const struct llama_model * model)
-     return common_decision_type_from_string(buf);
+@@ -1227,6 +1227,13 @@ common_decision_type common_get_decision_type(const std::string & fname) {
+     return common_decision_type_from_string(gguf_get_val_str(gguf_ctx.get(), type_id));
  }
  
 +bool common_decision_head_external(const struct llama_model * model) {
@@ -14,7 +14,7 @@
  common_init_result::common_init_result(common_params & params, bool model_only) :
      pimpl(new impl{}) {
      auto mparams = common_model_params_to_llama(params);
-@@ -1246,7 +1253,17 @@ common_init_result::common_init_result(common_params & params, bool model_only)
+@@ -1282,7 +1289,17 @@ common_init_result::common_init_result(common_params & params, bool model_only)
      // these decision models return a score for each token via the embeddings output
      // TODO: maybe improve this in the future
      const auto decision_type = common_get_decision_type(model);
@@ -35,9 +35,9 @@
  
 --- a/common/common.h
 +++ b/common/common.h
-@@ -971,6 +971,10 @@ enum common_decision_type {
- 
- common_decision_type common_get_decision_type(const struct llama_model * model);
+@@ -976,6 +976,10 @@ common_decision_type common_get_decision_type(const struct llama_model * model);
+ // returns COMMON_DECISION_TYPE_UNKNOWN if the file is missing, unreadable, or invalid
+ common_decision_type common_get_decision_type(const std::string & fname);
  
 +// Decision-model GGUFs converted by Ollama: a qwen35 backbone with the joint head stored as separate
 +// tensors, evaluated outside the graph from the hidden states (the native architecture runs it in the graph)
@@ -66,7 +66,7 @@
          case LLAMA_CONTEXT_TYPE_DEFAULT: return LLM_GRAPH_TYPE_DEFAULT;
          case LLAMA_CONTEXT_TYPE_MTP    : return LLM_GRAPH_TYPE_DECODER_MTP;
      }
-@@ -2131,7 +2132,7 @@ uint32_t llama_context::output_reserve(int32_t n_outputs) {
+@@ -2142,7 +2143,7 @@ uint32_t llama_context::output_reserve(int32_t n_outputs) {
      const auto n_embd     = hparams.n_embd;
      const auto n_embd_out = hparams.n_embd_out();
  
@@ -181,7 +181,7 @@
  
      mtmd_context * mctx = nullptr;
      // note: video_params.ffmpeg_bin_dir points into params_base, which outlives this struct
-@@ -1252,7 +1272,10 @@ private:
+@@ -1253,7 +1273,10 @@ private:
          }
  
          try {
@@ -193,7 +193,7 @@
          } catch (const std::exception & e) {
              SRV_ERR("failed to init decision model: %s\n", e.what());
              return false;
-@@ -2318,6 +2341,20 @@ private:
+@@ -2319,6 +2342,20 @@ private:
          res->n_tokens  = slot.task->n_tokens();
          res->res_type  = slot.task->params.res_type;
  
@@ -214,7 +214,7 @@
          const int n_embd_out = llama_model_n_embd_out(model_tgt);
  
          std::vector<float> embd_res(n_embd_out, 0.0f);
-@@ -4261,6 +4298,7 @@ private:
+@@ -4262,6 +4299,7 @@ private:
          };
  
          iterate(slots, [&](server_slot & slot) {
@@ -222,7 +222,7 @@
              // optionally send prompt processing progress
              if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_DONE_PROMPT) {
                  if (slot.task->params.stream && slot.task->params.return_progress) {
-@@ -4741,6 +4779,10 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
+@@ -4743,6 +4781,10 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
      GGML_ASSERT(type == SERVER_TASK_TYPE_COMPLETION || type == SERVER_TASK_TYPE_INFILL);
  
      auto res = create_response();
@@ -233,7 +233,7 @@
      auto completion_id = gen_chatcmplid();
      auto & rd = res->rd;
      auto & params = this->params;
-@@ -6133,6 +6175,43 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
+@@ -6140,6 +6182,43 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
              // OAI-compat
              task.params.res_type = res_type;
              task.params.embd_normalize = embd_normalize;
