@@ -73,6 +73,7 @@ type Model struct {
 	HasGoTemplate      bool
 	PreferChatTemplate bool // set when GGUF chat_template should take precedence over Go TEMPLATE
 	AdapterPaths       []string
+	ClassifierPaths    []string // GGUF classifier heads, served by POST /api/classify
 	ProjectorPaths     []string
 	System             string
 	License            []string
@@ -596,6 +597,13 @@ func (m *Model) String() string {
 		})
 	}
 
+	for _, classifier := range m.ClassifierPaths {
+		modelfile.Commands = append(modelfile.Commands, parser.Command{
+			Name: "classifier",
+			Args: classifier,
+		})
+	}
+
 	if m.DraftPath != "" {
 		modelfile.Commands = append(modelfile.Commands, parser.Command{
 			Name: "draft",
@@ -755,8 +763,10 @@ func GetModel(name string) (*Model, error) {
 			// Deprecated in versions  > 0.1.2
 			// TODO: remove this warning in a future version
 			slog.Info("WARNING: model contains embeddings, but embeddings in modelfiles have been deprecated and will be ignored.")
-		case "application/vnd.ollama.image.adapter":
+		case manifest.MediaTypeImageAdapter:
 			m.AdapterPaths = append(m.AdapterPaths, filename)
+		case manifest.MediaTypeImageClassifier:
+			m.ClassifierPaths = append(m.ClassifierPaths, filename)
 		case "application/vnd.ollama.image.projector":
 			m.ProjectorPaths = append(m.ProjectorPaths, filename)
 			if md, err := readGGUFMetadata(layer.Digest); err != nil {

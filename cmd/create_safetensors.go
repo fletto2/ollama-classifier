@@ -31,6 +31,7 @@ type modelfileConfig struct {
 	Capabilities []string
 	Parameters   map[string]any
 	Messages     []api.Message
+	GGUFOnly     []string // ADAPTER / CLASSIFIER lines, which only GGUF models support
 }
 
 var ignoredModelfileParameters = []string{
@@ -81,8 +82,8 @@ func configFromModelfile(modelfile *parser.Modelfile) (string, *modelfileConfig,
 				return "", nil, fmt.Errorf("requires must be a valid semver (e.g. 0.14.0)")
 			}
 			mfConfig.Requires = strings.TrimPrefix(requires, "v")
-		case "adapter":
-			return "", nil, errAdaptersUnsupported
+		case "adapter", "classifier":
+			mfConfig.GGUFOnly = append(mfConfig.GGUFOnly, strings.ToUpper(cmd.Name))
 		case "message":
 			role, content, _ := strings.Cut(cmd.Args, ": ")
 			mfConfig.Messages = append(mfConfig.Messages, api.Message{Role: role, Content: content})

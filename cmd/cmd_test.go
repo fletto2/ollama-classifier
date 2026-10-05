@@ -1868,10 +1868,15 @@ func TestCreateBlob(t *testing.T) {
 	})
 }
 
-func TestCreateHandlerRejectsAdaptersBeforeUpload(t *testing.T) {
+func TestCreateHandlerRejectsSafetensorsAdaptersBeforeUpload(t *testing.T) {
 	dir := t.TempDir()
+	for _, f := range []string{"config.json", "model.safetensors"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	modelfile := filepath.Join(dir, "Modelfile")
-	if err := os.WriteFile(modelfile, []byte("FROM base\nADAPTER ./adapter.gguf\n"), 0o644); err != nil {
+	if err := os.WriteFile(modelfile, []byte("FROM .\nADAPTER ./adapter.gguf\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

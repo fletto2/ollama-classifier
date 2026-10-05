@@ -83,6 +83,8 @@ type LlamaServerConfig struct {
 	ManifestDigest       string
 	DraftModelPath       string
 	DraftModelShardPaths []string
+	Classifiers          []string // GGUF classifier heads (llama-server --classifier)
+	LoRATrain            bool     // enable LoRA training on the loaded model (llama-server --lora-train)
 }
 
 // LoadModel loads GGUF model metadata from disk.

@@ -674,10 +674,12 @@ type CreateRequest struct {
 	// DraftFiles maps draft source file names to their SHA-256 digests.
 	DraftFiles map[string]string `json:"draft_files,omitempty"`
 
-	// Adapters is a map of LoRA adapters to include when creating the model.
-	//
-	// Deprecated: LoRA adapters are no longer supported.
+	// Adapters is a map of GGUF LoRA adapters to include when creating a GGUF model.
 	Adapters map[string]string `json:"adapters,omitempty"`
+
+	// Classifiers is a map of GGUF classifier heads (general.type = classifier) to include
+	// when creating a GGUF model; they are served by [Client.Classify].
+	Classifiers map[string]string `json:"classifiers,omitempty"`
 
 	// Template is the template used when constructing a request to the model.
 	Template string `json:"template,omitempty"`
@@ -1286,4 +1288,58 @@ func FormatParams(params map[string][]string) (map[string]any, error) {
 	}
 
 	return out, nil
+}
+
+// ClassifyRequest is the request passed to [Client.Classify].
+type ClassifyRequest struct {
+	// Model is the model name; it needs classifier heads (CLASSIFIER in its Modelfile).
+	Model string `json:"model"`
+
+	// Input is a string or a list of strings to classify.
+	Input any `json:"input"`
+
+	// KeepAlive controls how long the model will stay loaded in memory following
+	// this request.
+	KeepAlive *Duration `json:"keep_alive,omitempty"`
+}
+
+// ClassifyUsage counts the tokens of one classified input.
+type ClassifyUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+// ClassifyResponse holds the typed-decision answers for one input, keyed by question id,
+// e.g. {"relevant": {"type": "noul", "noul": 0.97}}.
+type ClassifyResponse struct {
+	Model   string                    `json:"model"`
+	Answers map[string]map[string]any `json:"answers"`
+	Usage   ClassifyUsage             `json:"usage"`
+}
+
+// TrainRequest is the request passed to [Client.Train]: train a LoRA adapter on a loaded
+// GGUF model and save base model + adapter as a new model.
+type TrainRequest struct {
+	// Model is the base model.
+	Model string `json:"model"`
+
+	// Name is the name of the new model (the base model's layers plus the trained adapter).
+	Name string `json:"name"`
+
+	// Text is the training text.
+	Text string `json:"text"`
+
+	Rank         int     `json:"rank,omitempty"`    // default 8
+	Alpha        float32 `json:"alpha,omitempty"`   // default 2*rank
+	LearningRate float32 `json:"lr,omitempty"`      // default 1e-4
+	Epochs       int     `json:"epochs,omitempty"`  // default 1
+	NumCtx       int     `json:"num_ctx,omitempty"` // tokens per training window, a multiple of 256; default 256
+	Targets      string  `json:"targets,omitempty"` // comma-separated weights, default attention + FFN
+	Seed         int     `json:"seed,omitempty"`
+
+	// Priority is "idle" (default: train only while the model serves no request) or "shared".
+	Priority string `json:"priority,omitempty"`
+
+	KeepAlive *Duration `json:"keep_alive,omitempty"`
+	Stream    *bool     `json:"stream,omitempty"`
 }

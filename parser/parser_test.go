@@ -70,6 +70,21 @@ DRAFT ./assistant
 	assert.Contains(t, modelfile.String(), "DRAFT ./assistant")
 }
 
+func TestParseFileClassifier(t *testing.T) {
+	modelfile, err := ParseFile(strings.NewReader(`
+FROM base
+CLASSIFIER ./head.gguf
+`))
+	require.NoError(t, err)
+
+	expectedCommands := []Command{
+		{Name: "model", Args: "base"},
+		{Name: "classifier", Args: "./head.gguf"},
+	}
+	assert.Equal(t, expectedCommands, modelfile.Commands)
+	assert.Contains(t, modelfile.String(), "CLASSIFIER ./head.gguf")
+}
+
 func TestCreateRequestDraftFiles(t *testing.T) {
 	dir := t.TempDir()
 	draft := filepath.Join(dir, "draft.gguf")

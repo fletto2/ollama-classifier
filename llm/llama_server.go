@@ -387,8 +387,13 @@ func startLlamaServer(launch llamaServerLaunchConfig, out io.Writer) (cmd *exec.
 	params = append(params, qwenVLServerArgs(launch.modelArch)...)
 
 	for _, adapter := range launch.adapters {
-		slog.Warn("LoRA adapters are deprecated and will be removed in a future release", "adapter", adapter)
 		params = append(params, "--lora", adapter)
+	}
+	for _, classifier := range launch.config.Classifiers {
+		params = append(params, "--classifier", classifier)
+	}
+	if launch.config.LoRATrain {
+		params = append(params, "--lora-train")
 	}
 
 	params = appendLoadModeArgs(params, launch.opts, launch.gpus)

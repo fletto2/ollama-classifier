@@ -435,6 +435,37 @@ func (c *Client) Embed(ctx context.Context, req *EmbedRequest) (*EmbedResponse, 
 	return &resp, nil
 }
 
+// Classify runs the classifier heads of a model (CLASSIFIER in its Modelfile) on one input
+// (a string) or several (a list of strings) and returns one response per input.
+func (c *Client) Classify(ctx context.Context, req *ClassifyRequest) ([]ClassifyResponse, error) {
+	var raw json.RawMessage
+	if err := c.do(ctx, http.MethodPost, "/api/classify", req, &raw); err != nil {
+		return nil, err
+	}
+	var many []ClassifyResponse
+	if err := json.Unmarshal(raw, &many); err == nil {
+		return many, nil
+	}
+	var one ClassifyResponse
+	if err := json.Unmarshal(raw, &one); err != nil {
+		return nil, err
+	}
+	return []ClassifyResponse{one}, nil
+}
+
+// Train trains a LoRA adapter on a loaded GGUF model and saves the base model plus the
+// adapter as a new model; fn receives the progress (Completed/Total optimizer steps).
+// The server must run with OLLAMA_LORA_TRAIN=1.
+func (c *Client) Train(ctx context.Context, req *TrainRequest, fn func(ProgressResponse) error) error {
+	return c.stream(ctx, http.MethodPost, "/api/train", req, func(bts []byte) error {
+		var resp ProgressResponse
+		if err := json.Unmarshal(bts, &resp); err != nil {
+			return err
+		}
+		return fn(resp)
+	})
+}
+
 // Embeddings generates an embedding from a model.
 func (c *Client) Embeddings(ctx context.Context, req *EmbeddingRequest) (*EmbeddingResponse, error) {
 	var resp EmbeddingResponse

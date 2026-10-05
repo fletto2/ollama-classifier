@@ -36,18 +36,21 @@ import (
 )
 
 var (
-	errNoFilesProvided        = errors.New("no files provided to convert")
-	errAdaptersUnsupported    = errors.New("LoRA adapters are no longer supported")
-	errOnlyGGUFSupported      = errors.New("supplied file was not in GGUF format")
-	errUnknownType            = errors.New("unknown type")
-	errNeitherFromOrFiles     = errors.New("neither 'from' or 'files' was specified")
-	errFilePath               = errors.New("file path must be relative")
-	errRemoteDraftUnsupported = errors.New("DRAFT cannot be used with remote models")
-	errSafetensorsFrom        = errors.New("safetensors imports do not support FROM model overlays")
-	errInvalidSplitGGUF       = errors.New("invalid split GGUF")
-	errMixedModelTypes        = errors.New("mixed model file types")
-	errInvalidCreateInfo      = errors.New("invalid create info")
-	errTypicalPDeprecated     = errors.New("typical_p is deprecated and cannot be set as a model parameter; pass it as a request option instead")
+	errNoFilesProvided             = errors.New("no files provided to convert")
+	errAdaptersUnsupported         = errors.New("LoRA adapters must be GGUF adapter files on a GGUF model")
+	errOnlyGGUFSupported           = errors.New("supplied file was not in GGUF format")
+	errUnknownType                 = errors.New("unknown type")
+	errNeitherFromOrFiles          = errors.New("neither 'from' or 'files' was specified")
+	errFilePath                    = errors.New("file path must be relative")
+	errRemoteDraftUnsupported      = errors.New("DRAFT cannot be used with remote models")
+	errRemoteAdapterUnsupported    = errors.New("ADAPTER cannot be used with remote models")
+	errClassifierInvalid           = errors.New("CLASSIFIER must be a GGUF classifier head (general.type = classifier)")
+	errRemoteClassifierUnsupported = errors.New("CLASSIFIER cannot be used with remote models")
+	errSafetensorsFrom             = errors.New("safetensors imports do not support FROM model overlays")
+	errInvalidSplitGGUF            = errors.New("invalid split GGUF")
+	errMixedModelTypes             = errors.New("mixed model file types")
+	errInvalidCreateInfo           = errors.New("invalid create info")
+	errTypicalPDeprecated          = errors.New("typical_p is deprecated and cannot be set as a model parameter; pass it as a request option instead")
 )
 
 const (
@@ -90,8 +93,12 @@ func (s *Server) CreateHandler(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if len(r.Adapters) > 0 {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errAdaptersUnsupported.Error()})
+	if err := validateCreateFiles(r.Adapters); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := validateCreateFiles(r.Classifiers); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	if _, err := create.LicenseStrings(r.License); err != nil {
@@ -113,6 +120,14 @@ func (s *Server) CreateHandler(c *gin.Context) {
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// LoRA adapters are GGUF files for GGUF models; safetensors (MLX) imports do not support them
+	for f := range r.Files {
+		if len(r.Adapters) > 0 && strings.HasSuffix(f, ".safetensors") {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errAdaptersUnsupported.Error()})
+			return
+		}
 	}
 
 	fileType, err := detectModelTypeFromFiles(r.Files)
@@ -218,7 +233,7 @@ func (s *Server) CreateHandler(c *gin.Context) {
 		} else if r.Files != nil {
 			baseLayers, err = convertModelFromFiles(reqCtx, r.Files, fn)
 			if err != nil {
-				for _, badReq := range []error{errNoFilesProvided, errOnlyGGUFSupported, errUnknownType, errInvalidSplitGGUF, errMixedModelTypes, errAdaptersUnsupported} {
+				for _, badReq := range []error{errNoFilesProvided, errOnlyGGUFSupported, errUnknownType, errInvalidSplitGGUF, errMixedModelTypes, errAdaptersUnsupported, errClassifierInvalid} {
 					if errors.Is(err, badReq) {
 						send(gin.H{"error": err.Error(), "status": http.StatusBadRequest})
 						return
@@ -241,7 +256,7 @@ func (s *Server) CreateHandler(c *gin.Context) {
 		if !remote && r.DraftFiles != nil {
 			draftLayers, err = convertDraftModelFromFiles(reqCtx, r.DraftFiles, fn)
 			if err != nil {
-				for _, badReq := range []error{errNoFilesProvided, errOnlyGGUFSupported, errUnknownType, errFilePath, errInvalidSplitGGUF, errMixedModelTypes, errAdaptersUnsupported} {
+				for _, badReq := range []error{errNoFilesProvided, errOnlyGGUFSupported, errUnknownType, errFilePath, errInvalidSplitGGUF, errMixedModelTypes, errAdaptersUnsupported, errClassifierInvalid} {
 					if errors.Is(err, badReq) {
 						send(gin.H{"error": err.Error(), "status": http.StatusBadRequest})
 						return
@@ -254,6 +269,32 @@ func (s *Server) CreateHandler(c *gin.Context) {
 
 		if len(draftLayers) > 0 {
 			baseLayers = append(baseLayers, draftLayers...)
+		}
+
+		if remote && len(r.Adapters) > 0 {
+			send(gin.H{"error": errRemoteAdapterUnsupported.Error(), "status": http.StatusBadRequest})
+			return
+		}
+		if !remote && r.Adapters != nil {
+			adapterLayers, err := convertModelFromFilesWithMediaType(reqCtx, r.Adapters, manifest.MediaTypeImageAdapter, false, fn)
+			if err != nil {
+				send(gin.H{"error": err.Error(), "status": http.StatusBadRequest})
+				return
+			}
+			baseLayers = append(baseLayers, adapterLayers...)
+		}
+
+		if remote && len(r.Classifiers) > 0 {
+			send(gin.H{"error": errRemoteClassifierUnsupported.Error(), "status": http.StatusBadRequest})
+			return
+		}
+		if !remote && r.Classifiers != nil {
+			classifierLayers, err := convertModelFromFilesWithMediaType(reqCtx, r.Classifiers, manifest.MediaTypeImageClassifier, false, fn)
+			if err != nil {
+				send(gin.H{"error": err.Error(), "status": http.StatusBadRequest})
+				return
+			}
+			baseLayers = append(baseLayers, classifierLayers...)
 		}
 
 		// Info is not currently exposed by Modelfiles, but allows overriding various
@@ -900,8 +941,19 @@ func ggufLayersWithMediaType(digest, sourceName, mediaType string, fn func(resp 
 		return nil, err
 	}
 
-	if metadata.Kind() == "adapter" {
-		return nil, fmt.Errorf("%w: %s is a LoRA adapter", errAdaptersUnsupported, sourceName)
+	// LoRA adapters (llama.cpp GGUF adapters, e.g. from llama-finetune --lora-rank) are only valid as ADAPTER
+	// layers, classifier heads (general.type = classifier) only as CLASSIFIER layers
+	if (metadata.Kind() == "adapter") != (mediaType == manifest.MediaTypeImageAdapter) {
+		if mediaType == manifest.MediaTypeImageAdapter {
+			return nil, fmt.Errorf("%w: %s is not a LoRA adapter", errAdaptersUnsupported, sourceName)
+		}
+		return nil, fmt.Errorf("%w: %s is a LoRA adapter, add it with ADAPTER", errAdaptersUnsupported, sourceName)
+	}
+	if (metadata.Kind() == "classifier") != (mediaType == manifest.MediaTypeImageClassifier) {
+		if mediaType == manifest.MediaTypeImageClassifier {
+			return nil, fmt.Errorf("%w: %s", errClassifierInvalid, sourceName)
+		}
+		return nil, fmt.Errorf("%w: %s is a classifier head, add it with CLASSIFIER", errClassifierInvalid, sourceName)
 	}
 	if mediaType == "" {
 		mediaType = "application/vnd.ollama.image.model"

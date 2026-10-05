@@ -252,6 +252,9 @@ func safetensorsCreateOptions(modelfile *parser.Modelfile, filename, modelName s
 	if !isSafetensors && !isBaseModelWithDraft {
 		return createOptions{}, false, nil
 	}
+	if len(mfConfig.GGUFOnly) > 0 {
+		return createOptions{}, false, errAdaptersUnsupported
+	}
 
 	if mfConfig.Draft != "" {
 		draftDir, err := resolveCreateDraftDir(mfConfig.Draft, filename)
@@ -290,7 +293,7 @@ func safetensorsCreateOptions(modelfile *parser.Modelfile, filename, modelName s
 }
 
 var (
-	errAdaptersUnsupported = errors.New("LoRA adapters are no longer supported")
+	errAdaptersUnsupported = errors.New("ADAPTER and CLASSIFIER are only supported for GGUF models")
 	errForceLocalOnly      = errors.New("--force is only supported for local MLX safetensors imports")
 	errTypicalPDeprecated  = errors.New("typical_p is deprecated and cannot be set as a model parameter; pass it as a request option instead")
 )
@@ -331,9 +334,6 @@ func CreateHandler(cmd *cobra.Command, args []string) error {
 	modelfile, filename, err := readCreateModelfile(cmd)
 	if err != nil {
 		return err
-	}
-	if slices.ContainsFunc(modelfile.Commands, func(c parser.Command) bool { return c.Name == "adapter" }) {
-		return errAdaptersUnsupported
 	}
 	if slices.ContainsFunc(modelfile.Commands, func(c parser.Command) bool { return c.Name == "typical_p" }) {
 		return errTypicalPDeprecated
@@ -382,7 +382,7 @@ func CreateHandler(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	// A FROM-only create has nothing to transfer, so skip the store probe.
-	local := len(req.Files)+len(req.DraftFiles) > 0 && sharedBlobStore(cmd.Context(), client)
+	local := len(req.Files)+len(req.DraftFiles)+len(req.Adapters)+len(req.Classifiers) > 0 && sharedBlobStore(cmd.Context(), client)
 
 	var g errgroup.Group
 	g.SetLimit(max(runtime.GOMAXPROCS(0)-1, 1))
@@ -413,12 +413,44 @@ func CreateHandler(cmd *cobra.Command, args []string) error {
 		})
 	}
 
+	adapterFiles := syncmap.NewSyncMap[string, string]()
+	adapterFileNames := createRequestFileNames(req.Adapters)
+	for f, digest := range req.Adapters {
+		g.Go(func() error {
+			if _, err := createBlob(cmd, client, f, digest, p, local); err != nil {
+				return err
+			}
+
+			adapterFiles.Store(adapterFileNames[f], digest)
+			return nil
+		})
+	}
+
+	classifierFiles := syncmap.NewSyncMap[string, string]()
+	classifierFileNames := createRequestFileNames(req.Classifiers)
+	for f, digest := range req.Classifiers {
+		g.Go(func() error {
+			if _, err := createBlob(cmd, client, f, digest, p, local); err != nil {
+				return err
+			}
+
+			classifierFiles.Store(classifierFileNames[f], digest)
+			return nil
+		})
+	}
+
 	if err := g.Wait(); err != nil {
 		return err
 	}
 
 	req.Files = files.Items()
 	req.DraftFiles = draftFiles.Items()
+	if len(req.Adapters) > 0 {
+		req.Adapters = adapterFiles.Items()
+	}
+	if len(req.Classifiers) > 0 {
+		req.Classifiers = classifierFiles.Items()
+	}
 
 	bars := make(map[string]*progress.Bar)
 	fn := func(resp api.ProgressResponse) error {
@@ -2640,6 +2672,7 @@ func NewCLI() *cobra.Command {
 	rootCmd.AddCommand(
 		serveCmd,
 		createCmd,
+		trainCmd(),
 		showCmd,
 		runCmd,
 		stopCmd,

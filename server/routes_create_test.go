@@ -804,18 +804,83 @@ func TestCreateFromBin(t *testing.T) {
 	})
 
 	t.Run("adapters", func(t *testing.T) {
+		_, adapterDigest := createBinFile(t, map[string]any{"general.type": "adapter"}, nil)
+		w := createRequest(t, s.CreateHandler, api.CreateRequest{
+			Name:     "my-gguf-model-lora",
+			Files:    map[string]string{"0.gguf": digest},
+			Adapters: map[string]string{"adapter.gguf": adapterDigest},
+			Stream:   &stream,
+		})
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+		}
+		mf, err := manifest.ParseNamedManifest(model.ParseName("my-gguf-model-lora"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(mf.Layers, func(l manifest.Layer) bool {
+			return l.MediaType == manifest.MediaTypeImageAdapter && l.Digest == adapterDigest
+		}) {
+			t.Errorf("expected an adapter layer with digest %s, got %+v", adapterDigest, mf.Layers)
+		}
+	})
+
+	t.Run("classifiers", func(t *testing.T) {
+		_, headDigest := createBinFile(t, map[string]any{"general.type": "classifier", "classifier.layer": uint32(2)}, nil)
+		w := createRequest(t, s.CreateHandler, api.CreateRequest{
+			Name:        "my-gguf-model-cls",
+			Files:       map[string]string{"0.gguf": digest},
+			Classifiers: map[string]string{"head.gguf": headDigest},
+			Stream:      &stream,
+		})
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+		}
+		mf, err := manifest.ParseNamedManifest(model.ParseName("my-gguf-model-cls"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(mf.Layers, func(l manifest.Layer) bool {
+			return l.MediaType == manifest.MediaTypeImageClassifier && l.Digest == headDigest
+		}) {
+			t.Errorf("expected a classifier layer with digest %s, got %+v", headDigest, mf.Layers)
+		}
+		m, err := GetModel("my-gguf-model-cls")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(m.ClassifierPaths) != 1 {
+			t.Errorf("expected 1 classifier path, got %v", m.ClassifierPaths)
+		}
+	})
+
+	t.Run("classifier that is not a classifier head", func(t *testing.T) {
+		w := createRequest(t, s.CreateHandler, api.CreateRequest{
+			Name:        "my-gguf-model",
+			Files:       map[string]string{"0.gguf": digest},
+			Classifiers: map[string]string{"head.gguf": digest},
+			Stream:      &stream,
+		})
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected status 400, got %d: %s", w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), errClassifierInvalid.Error()) {
+			t.Errorf("expected classifier error, got:\n%s", w.Body.String())
+		}
+	})
+
+	t.Run("adapter that is not an adapter", func(t *testing.T) {
 		w := createRequest(t, s.CreateHandler, api.CreateRequest{
 			Name:     "my-gguf-model",
 			Files:    map[string]string{"0.gguf": digest},
-			Adapters: map[string]string{"adapter.gguf": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+			Adapters: map[string]string{"adapter.gguf": digest},
 			Stream:   &stream,
 		})
-
 		if w.Code != http.StatusBadRequest {
-			t.Fatalf("expected status 400, got %d", w.Code)
+			t.Fatalf("expected status 400, got %d: %s", w.Code, w.Body.String())
 		}
 		if !strings.Contains(w.Body.String(), errAdaptersUnsupported.Error()) {
-			t.Errorf("expected adapters unsupported error, got:\n%s", w.Body.String())
+			t.Errorf("expected adapters error, got:\n%s", w.Body.String())
 		}
 	})
 

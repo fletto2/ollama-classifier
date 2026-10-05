@@ -123,6 +123,21 @@ func (f Modelfile) CreateRequest(relativeDir string) (*api.CreateRequest, error)
 			}
 
 			req.Adapters = digestMap
+		case "classifier":
+			path, err := expandPath(c.Args, relativeDir)
+			if err != nil {
+				return nil, err
+			}
+
+			digestMap, err := fileDigestMap(path)
+			if err != nil {
+				return nil, err
+			}
+
+			if req.Classifiers == nil {
+				req.Classifiers = make(map[string]string)
+			}
+			maps.Copy(req.Classifiers, digestMap)
 		case "template":
 			req.Template = c.Args
 		case "system":
@@ -443,7 +458,7 @@ func (c Command) String() string {
 	switch c.Name {
 	case "model":
 		fmt.Fprintf(&sb, "FROM %s", c.Args)
-	case "license", "template", "system", "adapter", "renderer", "parser", "requires", "draft", "capability":
+	case "license", "template", "system", "adapter", "classifier", "renderer", "parser", "requires", "draft", "capability":
 		fmt.Fprintf(&sb, "%s %s", strings.ToUpper(c.Name), quote(c.Args))
 	case "message":
 		role, message, _ := strings.Cut(c.Args, ": ")
@@ -469,7 +484,7 @@ const (
 var (
 	errMissingFrom        = errors.New("no FROM line")
 	errInvalidMessageRole = errors.New("message role must be one of \"system\", \"user\", or \"assistant\"")
-	errInvalidCommand     = errors.New("command must be one of \"from\", \"license\", \"template\", \"system\", \"adapter\", \"draft\", \"renderer\", \"parser\", \"parameter\", \"message\", \"requires\", or \"capability\"")
+	errInvalidCommand     = errors.New("command must be one of \"from\", \"license\", \"template\", \"system\", \"adapter\", \"classifier\", \"draft\", \"renderer\", \"parser\", \"parameter\", \"message\", \"requires\", or \"capability\"")
 )
 
 type ParserError struct {
@@ -729,7 +744,7 @@ func isValidMessageRole(role string) bool {
 
 func isValidCommand(cmd string) bool {
 	switch strings.ToLower(cmd) {
-	case "from", "license", "template", "system", "adapter", "draft", "renderer", "parser", "parameter", "message", "requires", "capability":
+	case "from", "license", "template", "system", "adapter", "classifier", "draft", "renderer", "parser", "parameter", "message", "requires", "capability":
 		return true
 	default:
 		return false

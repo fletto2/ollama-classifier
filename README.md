@@ -1,12 +1,44 @@
 # ollama-classifier
 
-This is [Ollama](https://github.com/ollama/ollama), built on [llama.cpp-classifier](https://github.com/fletto2/llama.cpp-classifier) instead of upstream llama.cpp. llama.cpp-classifier is upstream llama.cpp plus **per-context early exit** (`llama_set_n_layer_exit(ctx, L)`: a classifier context shares one loaded model with text generation) and **embedded GGUF LoRA training** (train adapters in C/C++ on a frozen, even quantized, base with `llama-finetune --lora-rank`). See that repo's README for both. Everything else here is unchanged upstream Ollama; for installation, usage, the API and the full documentation, see the [official Ollama README](https://github.com/ollama/ollama/blob/main/README.md).
+This is [Ollama](https://github.com/ollama/ollama), built on [llama.cpp-classifier](https://github.com/fletto2/llama.cpp-classifier) instead of upstream llama.cpp. llama.cpp-classifier adds **classifier heads** that share the loaded model with text generation (per-context early exit) and **embedded GGUF LoRA training** in C/C++ on a frozen, even quantized, base. See that repo's README for both.
+
+Everything else is unchanged upstream Ollama. For installation, usage, the API and the full documentation, see the [official Ollama README](https://github.com/ollama/ollama/blob/main/README.md).
+
+## Additions
+
+**LoRA adapters:** `ADAPTER adapter.gguf` in a Modelfile adds a GGUF LoRA adapter to a GGUF model. Such adapters come e.g. from `llama-finetune --lora-rank` or `ollama train`.
+
+**Classifier heads:** `CLASSIFIER head.gguf` adds a GGUF classifier head (`general.type = classifier`); a model can have several. The heads run on the loaded model, next to generation:
+
+```shell
+curl localhost:11434/api/classify -d '{"model": "my-model", "input": "text"}'
+# {"model":"my-model","answers":{"relevant":{"type":"noul","noul":0.97}},"usage":{"input_tokens":3,"output_tokens":0}}
+```
+
+`input` can also be a list of strings, which returns one result per string.
+
+**LoRA training on a loaded model:** start the server with `OLLAMA_LORA_TRAIN=1`, then run
+
+```shell
+ollama train BASE NEW -f data.txt [--rank 8 --lr 1e-4 --epochs 1 --num-ctx 256 --priority idle]
+```
+
+or call `POST /api/train`. This trains an adapter on the running base model and saves `NEW` = `BASE` + the adapter.
+- With `--priority idle`, training steps run only while the model is not serving requests.
+- With this setting, runners load weights without CPU repacking.
 
 ## What differs from upstream Ollama
 
-- `LLAMA_CPP_VERSION`: pins a llama.cpp-classifier commit (the tip of its `master`, because the clone is shallow).
-- `llama/server/CMakeLists.txt`, `cmake/local.cmake`: fetch llama.cpp from `fletto2/llama.cpp-classifier`.
-- `llama/compat/001-llama-cpp-hooks.patch`, `002-clef.patch`: Ollama's patches, rebased onto that base. Upstream llama.cpp now has its own Clef architecture. Ollama-converted Clef models (`qwen35` backbone + `clef.*` tensors) still use Ollama's head through `score_fields`, with the same scores as upstream Ollama.
+- **llama.cpp source:**
+  - `LLAMA_CPP_VERSION` pins a llama.cpp-classifier commit.
+  - `llama/server/CMakeLists.txt` and `cmake/local.cmake` fetch it from `fletto2/llama.cpp-classifier` with a full clone, so the pin may be any commit of the fork.
+  - `llama/compat/001-llama-cpp-hooks.patch` and `002-clef.patch` are Ollama's patches, rebased onto that base.
+  - Ollama-converted Clef models (a `qwen35` backbone + `clef.*` tensors) still use Ollama's head through `score_fields`, with the same scores as upstream Ollama.
+- **Go:**
+  - `ADAPTER` / `CLASSIFIER` in the Modelfile parser, `ollama create` and the model layers (`application/vnd.ollama.image.adapter`, `application/vnd.ollama.image.classifier`)
+  - the runner flags `--lora`, `--classifier`, `--lora-train`
+  - `POST /api/classify`, `POST /api/train`, `ollama train`
+  - `OLLAMA_LORA_TRAIN`
 
 ## Build
 
@@ -18,7 +50,7 @@ cmake --build build --parallel 8
 ./ollama serve
 ```
 
-To check that only the patched llama.cpp source is right (fetched at the pinned commit, both compat patches applied):
+To check only the patched llama.cpp source (fetched at the pinned commit, both compat patches applied):
 
 ```shell
 cmake -S llama/server --preset cpu
