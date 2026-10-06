@@ -1310,7 +1310,9 @@ type ClassifyUsage struct {
 }
 
 // ClassifyResponse holds the typed-decision answers for one input, keyed by question id,
-// e.g. {"relevant": {"type": "noul", "noul": 0.97}}.
+// e.g. {"relevant": {"type": "noul", "noul": 0.97}}. Choice heads answer {"type": "choice",
+// "choice", "confidence", "probabilities"}, score heads {"type": "score", "score", "confidence",
+// "legend", "probabilities"}.
 type ClassifyResponse struct {
 	Model   string                    `json:"model"`
 	Answers map[string]map[string]any `json:"answers"`
