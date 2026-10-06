@@ -15,7 +15,7 @@ curl localhost:11434/api/classify -d '{"model": "my-model", "input": "text"}'
 # {"model":"my-model","answers":{"relevant":{"type":"noul","noul":0.97}},"usage":{"input_tokens":3,"output_tokens":0}}
 ```
 
-`input` can also be a list of strings, which returns one result per string.
+`input` can also be a list of strings, which returns one result per string. A head answers a yes/no (`noul`), multiple-choice (`choice`) or ordinal (`score`) question, in the answer shapes of the llama.cpp-classifier README. Heads are trained with `llama-classifier train` from llama.cpp-classifier.
 
 **LoRA training on a loaded model:** start the server with `OLLAMA_LORA_TRAIN=1`, then run
 
