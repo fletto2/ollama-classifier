@@ -1,6 +1,8 @@
+diff --git a/common/common.cpp b/common/common.cpp
+index 28ea8680e..057222d81 100644
 --- a/common/common.cpp
 +++ b/common/common.cpp
-@@ -1227,6 +1227,13 @@ common_decision_type common_get_decision_type(const std::string & fname) {
+@@ -1230,6 +1230,13 @@ common_decision_type common_get_decision_type(const std::string & fname) {
      return common_decision_type_from_string(gguf_get_val_str(gguf_ctx.get(), type_id));
  }
  
@@ -14,11 +16,12 @@
  common_init_result::common_init_result(common_params & params, bool model_only) :
      pimpl(new impl{}) {
      auto mparams = common_model_params_to_llama(params);
-@@ -1282,7 +1289,17 @@ common_init_result::common_init_result(common_params & params, bool model_only)
+@@ -1285,8 +1292,18 @@ common_init_result::common_init_result(common_params & params, bool model_only)
      // these decision models return a score for each token via the embeddings output
      // TODO: maybe improve this in the future
      const auto decision_type = common_get_decision_type(model);
--    if (decision_type == COMMON_DECISION_TYPE_LAYA || decision_type == COMMON_DECISION_TYPE_KEV || decision_type == COMMON_DECISION_TYPE_CLEF) {
+-    if (decision_type == COMMON_DECISION_TYPE_LAYA || decision_type == COMMON_DECISION_TYPE_KEV || decision_type == COMMON_DECISION_TYPE_CLEF ||
+-        decision_type == COMMON_DECISION_TYPE_LFM2_D1_OMNI) {
 +    if (common_decision_head_external(model)) {
 +        params.embedding = cparams.embeddings = true;
 +        cparams.ctx_type = LLAMA_CONTEXT_TYPE_DECISION;
@@ -29,13 +32,16 @@
 +        params.n_ubatch = cparams.n_ubatch = n_ctx;
 +        params.n_outputs_max = cparams.n_outputs_max = n_ctx;
 +        params.n_outputs_max_per_seq = cparams.n_outputs_max_per_seq = 1;
-+    } else if (decision_type == COMMON_DECISION_TYPE_LAYA || decision_type == COMMON_DECISION_TYPE_KEV || decision_type == COMMON_DECISION_TYPE_CLEF) {
++    } else if (decision_type == COMMON_DECISION_TYPE_LAYA || decision_type == COMMON_DECISION_TYPE_KEV || decision_type == COMMON_DECISION_TYPE_CLEF ||
++               decision_type == COMMON_DECISION_TYPE_LFM2_D1_OMNI) {
          params.embedding    = true;
          params.pooling_type = LLAMA_POOLING_TYPE_NONE;
  
+diff --git a/common/common.h b/common/common.h
+index a71a558e9..419a756fd 100644
 --- a/common/common.h
 +++ b/common/common.h
-@@ -976,6 +976,10 @@ common_decision_type common_get_decision_type(const struct llama_model * model);
+@@ -988,6 +988,10 @@ common_decision_type common_get_decision_type(const struct llama_model * model);
  // returns COMMON_DECISION_TYPE_UNKNOWN if the file is missing, unreadable, or invalid
  common_decision_type common_get_decision_type(const std::string & fname);
  
@@ -46,9 +52,11 @@
  // note: defines the model, context, samplers, ets. lifetimes
  struct common_init_result {
      common_init_result(common_params & params, bool model_only = false);
+diff --git a/include/llama.h b/include/llama.h
+index 77f527d5b..259f2f20c 100644
 --- a/include/llama.h
 +++ b/include/llama.h
-@@ -224,6 +224,7 @@ extern "C" {
+@@ -225,6 +225,7 @@ extern "C" {
      enum llama_context_type {
          LLAMA_CONTEXT_TYPE_DEFAULT = 0,
          LLAMA_CONTEXT_TYPE_MTP     = 1,
@@ -56,9 +64,11 @@
      };
  
      // TODO: simplify (https://github.com/ggml-org/llama.cpp/pull/9294#pullrequestreview-2286561979)
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index c25bbe7a2..6954ff349 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
-@@ -27,6 +27,7 @@
+@@ -28,6 +28,7 @@
  
  static llm_graph_type ctx_type_to_graph_type(llama_context_type ctx_type) {
      switch (ctx_type) {
@@ -66,7 +76,7 @@
          case LLAMA_CONTEXT_TYPE_DEFAULT: return LLM_GRAPH_TYPE_DEFAULT;
          case LLAMA_CONTEXT_TYPE_MTP    : return LLM_GRAPH_TYPE_DECODER_MTP;
      }
-@@ -2142,7 +2143,7 @@ uint32_t llama_context::output_reserve(int32_t n_outputs) {
+@@ -2187,7 +2188,7 @@ uint32_t llama_context::output_reserve(int32_t n_outputs) {
      const auto n_embd     = hparams.n_embd;
      const auto n_embd_out = hparams.n_embd_out();
  
@@ -75,6 +85,8 @@
      bool has_embd       = cparams.embeddings;
      bool has_embd_nextn = cparams.embeddings_nextn;
  
+diff --git a/src/models/qwen35.cpp b/src/models/qwen35.cpp
+index 350cea808..4478e22a5 100644
 --- a/src/models/qwen35.cpp
 +++ b/src/models/qwen35.cpp
 @@ -229,11 +229,12 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
@@ -95,6 +107,8 @@
  
      ggml_build_forward_expand(gf, cur);
  }
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index d11006c92..92c5921f4 100644
 --- a/tools/server/server-context.cpp
 +++ b/tools/server/server-context.cpp
 @@ -1,4 +1,5 @@
@@ -118,7 +132,7 @@
 +        score_embeddings.clear();
  
          last_nl_pos    = 0;
-         generated_text = "";
+         generated      = {};
 @@ -441,6 +444,19 @@ struct server_slot {
                  (ggml_time_us() - t_start) / 1000.0, n_text, (int) prompt.tokens.size());
      }
@@ -181,7 +195,7 @@
  
      mtmd_context * mctx = nullptr;
      // note: video_params.ffmpeg_bin_dir points into params_base, which outlives this struct
-@@ -1253,7 +1273,10 @@ private:
+@@ -1260,7 +1280,10 @@ private:
          }
  
          try {
@@ -193,7 +207,7 @@
          } catch (const std::exception & e) {
              SRV_ERR("failed to init decision model: %s\n", e.what());
              return false;
-@@ -2319,6 +2342,20 @@ private:
+@@ -2324,6 +2347,20 @@ private:
          res->n_tokens  = slot.task->n_tokens();
          res->res_type  = slot.task->params.res_type;
  
@@ -214,7 +228,7 @@
          const int n_embd_out = llama_model_n_embd_out(model_tgt);
  
          std::vector<float> embd_res(n_embd_out, 0.0f);
-@@ -4262,6 +4299,7 @@ private:
+@@ -4354,6 +4391,7 @@ private:
          };
  
          iterate(slots, [&](server_slot & slot) {
@@ -222,7 +236,7 @@
              // optionally send prompt processing progress
              if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_DONE_PROMPT) {
                  if (slot.task->params.stream && slot.task->params.return_progress) {
-@@ -4743,6 +4781,10 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
+@@ -4835,6 +4873,10 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
      GGML_ASSERT(type == SERVER_TASK_TYPE_COMPLETION || type == SERVER_TASK_TYPE_INFILL);
  
      auto res = create_response();
@@ -233,7 +247,7 @@
      auto completion_id = gen_chatcmplid();
      auto & rd = res->rd;
      auto & params = this->params;
-@@ -6140,6 +6182,43 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
+@@ -6516,6 +6558,43 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
              // OAI-compat
              task.params.res_type = res_type;
              task.params.embd_normalize = embd_normalize;
@@ -277,6 +291,8 @@
  
              tasks.push_back(std::move(task));
          }
+diff --git a/tools/server/server-task.cpp b/tools/server/server-task.cpp
+index 21c1fe4e1..a923919be 100644
 --- a/tools/server/server-task.cpp
 +++ b/tools/server/server-task.cpp
 @@ -1464,6 +1464,9 @@ json server_task_result_cmpl_partial::to_json_anthropic() {
@@ -289,9 +305,11 @@
      return res_type == TASK_RESPONSE_TYPE_OAI_EMBD
          ? to_json_oaicompat()
          : to_json_non_oaicompat();
+diff --git a/tools/server/server-task.h b/tools/server/server-task.h
+index 3ee629f42..52223bb48 100644
 --- a/tools/server/server-task.h
 +++ b/tools/server/server-task.h
-@@ -160,6 +160,7 @@ struct server_task {
+@@ -164,6 +164,7 @@ struct server_task {
      // used by SERVER_TASK_TYPE_INFERENCE
      task_params   params;
      server_tokens tokens;
@@ -299,7 +317,7 @@
  
      // only used by CLI, this allow tokenizing CLI inputs on server side
      // we need this because mtmd_context and vocab are not accessible outside of server_context
-@@ -493,6 +494,7 @@ struct server_task_result_cmpl_partial : server_task_result {
+@@ -506,6 +507,7 @@ struct server_task_result_cmpl_partial : server_task_result {
  };
  
  struct server_task_result_embd : server_task_result {
