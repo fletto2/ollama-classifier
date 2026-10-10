@@ -808,6 +808,29 @@ const (
 	draftTypeDFlash = "draft-dflash"
 )
 
+// ngramSpecTypes are llama-server's speculative decoders that need no draft
+// model: they draft from n-grams already seen in the prompt and the output.
+var ngramSpecTypes = map[string]bool{
+	"ngram-cache":   true,
+	"ngram-mod":     true,
+	"ngram-simple":  true,
+	"ngram-map-k":   true,
+	"ngram-map-k4v": true,
+}
+
+// ngramDraftType returns the draft-free spec type set by OLLAMA_SPEC_TYPE, or
+// "" when it is unset.
+func ngramDraftType(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	if !ngramSpecTypes[value] {
+		return "", fmt.Errorf("OLLAMA_SPEC_TYPE=%q: want one of ngram-cache, ngram-mod, ngram-simple, ngram-map-k, ngram-map-k4v", value)
+	}
+	return value, nil
+}
+
 func appendDraftArgs(params []string, draftType, draftModelPath string, opts api.Options) []string {
 	if draftType == "" {
 		return params
@@ -906,7 +929,10 @@ func NewLlamaServerRunner(
 		config.EnableMTP = true
 	}
 
-	draftType := ""
+	draftType, err := ngramDraftType(envconfig.SpecType())
+	if err != nil {
+		return nil, err
+	}
 	if config.EnableMTP {
 		draftType = draftTypeMTP
 	}

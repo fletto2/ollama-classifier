@@ -29,6 +29,8 @@ or call `POST /api/train`. This trains an adapter on the running base model and 
 - `BASE` must be a GGUF model without adapters, and `NEW` must be a different name; an existing model called `NEW` is replaced.
 - Recurrent/hybrid (e.g. Qwen3.5), MoE and diffusion models can't be trained: some of their ops have no backward pass.
 
+**Speculative decoding without a draft model:** `OLLAMA_SPEC_TYPE=ngram-cache` (or `ngram-mod`, `ngram-simple`, `ngram-map-k`, `ngram-map-k4v`) makes runners draft from n-grams already in the prompt and output, for models that have no MTP head or draft model. The `draft_num_predict` option sets the draft length (default 4). Output is unchanged under greedy sampling. It pays on output that copies the input (rewritten code or listings); on free text it is about neutral.
+
 ## What differs from upstream Ollama
 
 - **llama.cpp source:**
@@ -40,7 +42,7 @@ or call `POST /api/train`. This trains an adapter on the running base model and 
   - `ADAPTER` / `CLASSIFIER` in the Modelfile parser, `ollama create` and the model layers (`application/vnd.ollama.image.adapter`, `application/vnd.ollama.image.classifier`)
   - the runner flags `--lora`, `--classifier`, `--lora-train`, `--lora-train-dir` (`<models>/lora-train`)
   - `POST /api/classify`, `POST /api/train`, `ollama train`
-  - `OLLAMA_LORA_TRAIN`
+  - `OLLAMA_LORA_TRAIN`, `OLLAMA_SPEC_TYPE`
 
 ## Build
 

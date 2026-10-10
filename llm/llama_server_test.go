@@ -2534,6 +2534,20 @@ func TestAppendContextShiftArgs(t *testing.T) {
 	}
 }
 
+func TestNgramDraftType(t *testing.T) {
+	for _, v := range []string{"", "ngram-cache", " ngram-mod ", "ngram-simple", "ngram-map-k", "ngram-map-k4v"} {
+		got, err := ngramDraftType(v)
+		if err != nil || got != strings.TrimSpace(v) {
+			t.Fatalf("ngramDraftType(%q) = %q, %v", v, got, err)
+		}
+	}
+	for _, v := range []string{"draft-mtp", "ngram", "lookup"} {
+		if _, err := ngramDraftType(v); err == nil {
+			t.Fatalf("ngramDraftType(%q) accepted", v)
+		}
+	}
+}
+
 func TestAppendDraftArgs(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -2566,6 +2580,12 @@ func TestAppendDraftArgs(t *testing.T) {
 			draftPath: "draft.gguf",
 			opts:      api.Options{Runner: api.Runner{DraftNumPredict: 4}},
 			want:      []string{"base", "--spec-type", "draft-dflash", "--spec-draft-n-max", "4", "--spec-draft-model", "draft.gguf"},
+		},
+		{
+			name:      "n-gram drafter needs no draft model",
+			draftType: "ngram-cache",
+			opts:      api.Options{Runner: api.Runner{DraftNumPredict: 3}},
+			want:      []string{"base", "--spec-type", "ngram-cache", "--spec-draft-n-max", "3"},
 		},
 		{
 			name:      "zero draft depth disables speculative decoding",
