@@ -1,9 +1,9 @@
 diff --git a/common/common.cpp b/common/common.cpp
-index 28ea8680e..057222d81 100644
+index 9a71a33ff..42df02bbb 100644
 --- a/common/common.cpp
 +++ b/common/common.cpp
-@@ -1230,6 +1230,13 @@ common_decision_type common_get_decision_type(const std::string & fname) {
-     return common_decision_type_from_string(gguf_get_val_str(gguf_ctx.get(), type_id));
+@@ -1233,6 +1233,13 @@ common_gguf_info common_get_gguf_info(const std::string & fname) {
+     return info;
  }
  
 +bool common_decision_head_external(const struct llama_model * model) {
@@ -16,7 +16,7 @@ index 28ea8680e..057222d81 100644
  common_init_result::common_init_result(common_params & params, bool model_only) :
      pimpl(new impl{}) {
      auto mparams = common_model_params_to_llama(params);
-@@ -1285,8 +1292,18 @@ common_init_result::common_init_result(common_params & params, bool model_only)
+@@ -1288,8 +1295,18 @@ common_init_result::common_init_result(common_params & params, bool model_only)
      // these decision models return a score for each token via the embeddings output
      // TODO: maybe improve this in the future
      const auto decision_type = common_get_decision_type(model);
@@ -38,12 +38,12 @@ index 28ea8680e..057222d81 100644
          params.pooling_type = LLAMA_POOLING_TYPE_NONE;
  
 diff --git a/common/common.h b/common/common.h
-index a71a558e9..419a756fd 100644
+index 548a65378..dedc8978b 100644
 --- a/common/common.h
 +++ b/common/common.h
-@@ -988,6 +988,10 @@ common_decision_type common_get_decision_type(const struct llama_model * model);
- // returns COMMON_DECISION_TYPE_UNKNOWN if the file is missing, unreadable, or invalid
- common_decision_type common_get_decision_type(const std::string & fname);
+@@ -992,6 +992,10 @@ struct common_gguf_info {
+ 
+ common_gguf_info common_get_gguf_info(const std::string & fname);
  
 +// Decision-model GGUFs converted by Ollama: a qwen35 backbone with the joint head stored as separate
 +// tensors, evaluated outside the graph from the hidden states (the native architecture runs it in the graph)
@@ -53,7 +53,7 @@ index a71a558e9..419a756fd 100644
  struct common_init_result {
      common_init_result(common_params & params, bool model_only = false);
 diff --git a/include/llama.h b/include/llama.h
-index 77f527d5b..259f2f20c 100644
+index cfc69cee2..fa683cad9 100644
 --- a/include/llama.h
 +++ b/include/llama.h
 @@ -225,6 +225,7 @@ extern "C" {
@@ -65,7 +65,7 @@ index 77f527d5b..259f2f20c 100644
  
      // TODO: simplify (https://github.com/ggml-org/llama.cpp/pull/9294#pullrequestreview-2286561979)
 diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index c25bbe7a2..6954ff349 100644
+index 225b218d7..e5436eb22 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
 @@ -28,6 +28,7 @@
@@ -76,7 +76,7 @@ index c25bbe7a2..6954ff349 100644
          case LLAMA_CONTEXT_TYPE_DEFAULT: return LLM_GRAPH_TYPE_DEFAULT;
          case LLAMA_CONTEXT_TYPE_MTP    : return LLM_GRAPH_TYPE_DECODER_MTP;
      }
-@@ -2187,7 +2188,7 @@ uint32_t llama_context::output_reserve(int32_t n_outputs) {
+@@ -2176,7 +2177,7 @@ uint32_t llama_context::output_reserve(int32_t n_outputs) {
      const auto n_embd     = hparams.n_embd;
      const auto n_embd_out = hparams.n_embd_out();
  
@@ -86,7 +86,7 @@ index c25bbe7a2..6954ff349 100644
      bool has_embd_nextn = cparams.embeddings_nextn;
  
 diff --git a/src/models/qwen35.cpp b/src/models/qwen35.cpp
-index 350cea808..4478e22a5 100644
+index ab3b2aed1..5c723cc77 100644
 --- a/src/models/qwen35.cpp
 +++ b/src/models/qwen35.cpp
 @@ -229,11 +229,12 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
@@ -108,7 +108,7 @@ index 350cea808..4478e22a5 100644
      ggml_build_forward_expand(gf, cur);
  }
 diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
-index d11006c92..92c5921f4 100644
+index 280512823..88c6af5f9 100644
 --- a/tools/server/server-context.cpp
 +++ b/tools/server/server-context.cpp
 @@ -1,4 +1,5 @@
@@ -228,7 +228,7 @@ index d11006c92..92c5921f4 100644
          const int n_embd_out = llama_model_n_embd_out(model_tgt);
  
          std::vector<float> embd_res(n_embd_out, 0.0f);
-@@ -4354,6 +4391,7 @@ private:
+@@ -4503,6 +4540,7 @@ private:
          };
  
          iterate(slots, [&](server_slot & slot) {
@@ -236,7 +236,7 @@ index d11006c92..92c5921f4 100644
              // optionally send prompt processing progress
              if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_DONE_PROMPT) {
                  if (slot.task->params.stream && slot.task->params.return_progress) {
-@@ -4835,6 +4873,10 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
+@@ -4985,6 +5023,10 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
      GGML_ASSERT(type == SERVER_TASK_TYPE_COMPLETION || type == SERVER_TASK_TYPE_INFILL);
  
      auto res = create_response();
@@ -247,7 +247,7 @@ index d11006c92..92c5921f4 100644
      auto completion_id = gen_chatcmplid();
      auto & rd = res->rd;
      auto & params = this->params;
-@@ -6516,6 +6558,43 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
+@@ -6687,6 +6729,43 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
              // OAI-compat
              task.params.res_type = res_type;
              task.params.embd_normalize = embd_normalize;
@@ -292,10 +292,10 @@ index d11006c92..92c5921f4 100644
              tasks.push_back(std::move(task));
          }
 diff --git a/tools/server/server-task.cpp b/tools/server/server-task.cpp
-index 21c1fe4e1..a923919be 100644
+index 3f30da2cd..28220e314 100644
 --- a/tools/server/server-task.cpp
 +++ b/tools/server/server-task.cpp
-@@ -1464,6 +1464,9 @@ json server_task_result_cmpl_partial::to_json_anthropic() {
+@@ -1456,6 +1456,9 @@ json server_task_result_cmpl_partial::to_json_anthropic() {
  // server_task_result_embd
  //
  json server_task_result_embd::to_json() {
@@ -306,7 +306,7 @@ index 21c1fe4e1..a923919be 100644
          ? to_json_oaicompat()
          : to_json_non_oaicompat();
 diff --git a/tools/server/server-task.h b/tools/server/server-task.h
-index 3ee629f42..52223bb48 100644
+index 0bc8f044f..86bce0eb5 100644
 --- a/tools/server/server-task.h
 +++ b/tools/server/server-task.h
 @@ -164,6 +164,7 @@ struct server_task {
@@ -317,7 +317,7 @@ index 3ee629f42..52223bb48 100644
  
      // only used by CLI, this allow tokenizing CLI inputs on server side
      // we need this because mtmd_context and vocab are not accessible outside of server_context
-@@ -506,6 +507,7 @@ struct server_task_result_cmpl_partial : server_task_result {
+@@ -511,6 +512,7 @@ struct server_task_result_cmpl_partial : server_task_result {
  };
  
  struct server_task_result_embd : server_task_result {
