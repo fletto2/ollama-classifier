@@ -92,6 +92,13 @@ type LlamaServerConfig struct {
 	ClassifierUbatch     int      // llama-server --classifier-ubatch (0: its default)
 }
 
+// IsLlamaCPP reports whether the server is backed by the llama.cpp
+// llama-server runner implementation.
+func IsLlamaCPP(s LlamaServer) bool {
+	_, ok := s.(*llamaServerRunner)
+	return ok
+}
+
 // LoadModel loads GGUF model metadata from disk.
 //
 // It collects array values for arrays with a size less than or equal to

@@ -90,7 +90,7 @@ func (s *Server) classifierProxy(c *gin.Context, path string, check func(m *Mode
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
-	r, _, _, err := s.scheduleRunner(c.Request.Context(), m, []model.Capability{}, nil, keepAlive, nil)
+	r, _, _, err := s.scheduleRunnerForModel(c.Request.Context(), m, []model.Capability{}, nil, keepAlive, nil)
 	if err != nil {
 		handleScheduleError(c, name, err)
 		return
@@ -236,7 +236,7 @@ func (s *Server) TrainHandler(c *gin.Context) {
 		return
 	}
 
-	r, _, _, err := s.scheduleRunner(c.Request.Context(), m, []model.Capability{}, nil, req.KeepAlive, nil)
+	r, _, _, err := s.scheduleRunnerForModel(c.Request.Context(), m, []model.Capability{}, nil, req.KeepAlive, nil)
 	if err != nil {
 		handleScheduleError(c, req.Model, err)
 		return
