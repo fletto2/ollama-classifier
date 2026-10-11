@@ -15,7 +15,7 @@ curl localhost:11434/api/classify -d '{"model": "my-model", "input": "text"}'
 # {"model":"my-model","answers":{"relevant":{"type":"noul","noul":0.97}},"usage":{"input_tokens":3,"output_tokens":0}}
 ```
 
-`input` can also be a list of strings, which returns one result per string. A head answers a yes/no (`noul`), multiple-choice (`choice`) or ordinal (`score`) question, in the answer shapes of the llama.cpp-classifier README. Heads are trained with `llama-classifier train` from llama.cpp-classifier.
+`input` can also be a list of strings, which returns one result per string. A `"term"` (one string, or one per input) is passed to heads trained with span pooling, which read only that term's tokens (llama.cpp-classifier README, "Span pooling"). A head answers a yes/no (`noul`), multiple-choice (`choice`) or ordinal (`score`) question, in the answer shapes of the llama.cpp-classifier README. Heads are trained with `llama-classifier train` from llama.cpp-classifier.
 
 **Classifier endpoints without a head, features and live head training:** every classifier endpoint of llama.cpp-classifier's llama-server is reachable through Ollama. The request body is passed through as is (with `model` and `keep_alive` handled by Ollama), and each needs its server setting:
 
