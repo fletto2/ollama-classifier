@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strconv"
 
 	"github.com/ollama/ollama/api"
 	"github.com/ollama/ollama/envconfig"
@@ -23,6 +24,48 @@ func LoRATrainDir() string {
 // (llama-server --classifier, POST /classify).
 type Classifier interface {
 	Classify(ctx context.Context, inputs []string) ([]api.ClassifyResponse, error)
+}
+
+// ClassifierProxy forwards a JSON request to one of llama-server's classifier endpoints (/classify, /features,
+// /options, /classify/train) and returns its JSON answer unchanged.
+type ClassifierProxy interface {
+	ClassifierPost(ctx context.Context, path string, body map[string]any) (json.RawMessage, error)
+}
+
+// ClassifierTrainDir is where runners started with OLLAMA_CLASSIFIER_TRAIN save heads requested with "save": true.
+func ClassifierTrainDir() string {
+	return filepath.Join(envconfig.Models(), "classifier-train")
+}
+
+func appendClassifierArgs(params []string, c LlamaServerConfig) []string {
+	if c.ClassifierFeatures || c.ClassifierTrain {
+		params = append(params, "--features")
+	}
+	if c.ClassifierTrain {
+		params = append(params, "--classifier-train", "--classifier-dir", ClassifierTrainDir())
+	}
+	if c.Options {
+		params = append(params, "--options")
+	}
+	if c.ClassifierCtx > 0 {
+		params = append(params, "--classifier-ctx", strconv.Itoa(c.ClassifierCtx))
+	}
+	if c.ClassifierUbatch > 0 {
+		params = append(params, "--classifier-ubatch", strconv.Itoa(c.ClassifierUbatch))
+	}
+	return params
+}
+
+func (s *llamaServerRunner) ClassifierPost(ctx context.Context, path string, body map[string]any) (json.RawMessage, error) {
+	if err := s.sem.Acquire(ctx, 1); err != nil {
+		return nil, err
+	}
+	defer s.sem.Release(1)
+	var out json.RawMessage
+	if err := s.serverJSON(ctx, http.MethodPost, path, body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // LoRATrainJob is the state of a LoRA training job of llama-server (GET /lora/train).

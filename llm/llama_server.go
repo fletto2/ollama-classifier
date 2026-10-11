@@ -395,6 +395,7 @@ func startLlamaServer(launch llamaServerLaunchConfig, out io.Writer) (cmd *exec.
 	if launch.config.LoRATrain {
 		params = append(params, "--lora-train", "--lora-train-dir", LoRATrainDir())
 	}
+	params = appendClassifierArgs(params, launch.config)
 
 	params = appendLoadModeArgs(params, launch.opts, launch.gpus)
 

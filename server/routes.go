@@ -2073,6 +2073,9 @@ func (s *Server) GenerateRoutes() (http.Handler, error) {
 	r.POST("/api/chat", s.withInferenceRequestLogging("/api/chat", s.ChatHandler)...)
 	r.POST("/api/embed", s.EmbedHandler)
 	r.POST("/api/classify", s.ClassifyHandler)
+	r.POST("/api/classify/train", s.ClassifyTrainHandler)
+	r.POST("/api/features", s.FeaturesHandler)
+	r.POST("/api/options", s.OptionsHandler)
 	r.POST("/api/train", s.TrainHandler)
 	r.POST("/api/embeddings", s.EmbeddingsHandler)
 	r.POST("/v1/systemone", s.SystemOneHandler)
@@ -2551,6 +2554,11 @@ func llamaServerConfigForModel(m *Model) llm.LlamaServerConfig {
 		DraftModelShardPaths: slices.Clone(m.DraftShardPaths),
 		Classifiers:          slices.Clone(m.ClassifierPaths),
 		LoRATrain:            envconfig.LoRATrain(),
+		ClassifierFeatures:   envconfig.ClassifierFeatures(),
+		ClassifierTrain:      envconfig.ClassifierTrain(),
+		Options:              envconfig.Options(),
+		ClassifierCtx:        int(envconfig.ClassifierCtx()),
+		ClassifierUbatch:     int(envconfig.ClassifierUbatch()),
 	}
 }
 

@@ -17,6 +17,17 @@ curl localhost:11434/api/classify -d '{"model": "my-model", "input": "text"}'
 
 `input` can also be a list of strings, which returns one result per string. A head answers a yes/no (`noul`), multiple-choice (`choice`) or ordinal (`score`) question, in the answer shapes of the llama.cpp-classifier README. Heads are trained with `llama-classifier train` from llama.cpp-classifier.
 
+**Classifier endpoints without a head, features and live head training:** every classifier endpoint of llama.cpp-classifier's llama-server is reachable through Ollama. The request body is passed through as is (with `model` and `keep_alive` handled by Ollama), and each needs its server setting:
+
+| route | llama-server endpoint | setting |
+|---|---|---|
+| `POST /api/classify` with `"questions"` | `/classify`, questions answered by similarity to their answers' descriptions, no head needed | `OLLAMA_CLASSIFIER_FEATURES=1` |
+| `POST /api/features` | `/features`, pooled hidden states of chosen layers | `OLLAMA_CLASSIFIER_FEATURES=1` |
+| `POST /api/options` | `/options`, log-probabilities of fixed answers after a prompt | `OLLAMA_OPTIONS=1` |
+| `POST /api/classify/train` | `/classify/train`, fit a head and register it live (`"save": true` writes it to `<models>/classifier-train`) | `OLLAMA_CLASSIFIER_TRAIN=1` |
+
+`OLLAMA_CLASSIFIER_CTX` and `OLLAMA_CLASSIFIER_UBATCH` set the classifier contexts' maximum input length and compute step (llama-server `--classifier-ctx`, `--classifier-ubatch`). Each enabled endpoint adds a context to every runner, so enable only what is used.
+
 **LoRA training on a loaded model:** start the server with `OLLAMA_LORA_TRAIN=1`, then run
 
 ```shell
@@ -42,7 +53,8 @@ or call `POST /api/train`. This trains an adapter on the running base model and 
   - `ADAPTER` / `CLASSIFIER` in the Modelfile parser, `ollama create` and the model layers (`application/vnd.ollama.image.adapter`, `application/vnd.ollama.image.classifier`)
   - the runner flags `--lora`, `--classifier`, `--lora-train`, `--lora-train-dir` (`<models>/lora-train`)
   - `POST /api/classify`, `POST /api/train`, `ollama train`
-  - `OLLAMA_LORA_TRAIN`, `OLLAMA_SPEC_TYPE`
+  - `OLLAMA_LORA_TRAIN`, `OLLAMA_SPEC_TYPE`, `OLLAMA_CLASSIFIER_FEATURES`, `OLLAMA_CLASSIFIER_TRAIN`, `OLLAMA_OPTIONS`, `OLLAMA_CLASSIFIER_CTX`, `OLLAMA_CLASSIFIER_UBATCH`
+  - `POST /api/features`, `POST /api/options`, `POST /api/classify/train`
 
 ## Build
 

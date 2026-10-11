@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -49,13 +50,13 @@ func resolveLocalGGUFModel(c *gin.Context, requested string) (*Model, model.Name
 	return m, name, true
 }
 
-// ClassifyHandler runs the classifier heads of a model (CLASSIFIER in its Modelfile) on the
-// loaded model; one typed-decision response per input (an object for a string input, an array
-// for a list of strings).
-func (s *Server) ClassifyHandler(c *gin.Context) {
+// classifierProxy forwards a request body to one of the runner's llama-server classifier endpoints. The model
+// is resolved and scheduled as usual; "model" and "keep_alive" are consumed here, every other field reaches
+// llama-server unchanged, and the "model" of each answer is set to the requested name.
+func (s *Server) classifierProxy(c *gin.Context, path string, check func(m *Model, body map[string]any) string) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32<<20)
-	var req api.ClassifyRequest
-	if err := c.ShouldBindJSON(&req); errors.Is(err, io.EOF) {
+	var body map[string]any
+	if err := json.NewDecoder(c.Request.Body).Decode(&body); errors.Is(err, io.EOF) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "missing request body"})
 		return
 	} else if err != nil {
@@ -67,50 +68,39 @@ func (s *Server) ClassifyHandler(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	var inputs []string
-	single := false
-	switch in := req.Input.(type) {
-	case string:
-		inputs, single = []string{in}, true
-	case []any:
-		for _, v := range in {
-			s, ok := v.(string)
-			if !ok {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "input must be a string or a list of strings"})
-				return
-			}
-			inputs = append(inputs, s)
+	name, _ := body["model"].(string)
+	var keepAlive *api.Duration
+	if v, ok := body["keep_alive"]; ok {
+		raw, _ := json.Marshal(v)
+		var d api.Duration
+		if err := json.Unmarshal(raw, &d); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid keep_alive: " + err.Error()})
+			return
 		}
-	default:
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "input must be a string or a list of strings"})
-		return
+		keepAlive = &d
 	}
-	if len(inputs) == 0 || slices.Contains(inputs, "") {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "input must not be empty"})
-		return
-	}
+	delete(body, "model")
+	delete(body, "keep_alive")
 
-	m, _, ok := resolveLocalGGUFModel(c, req.Model)
+	m, _, ok := resolveLocalGGUFModel(c, name)
 	if !ok {
 		return
 	}
-	if len(m.ClassifierPaths) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("model %q has no classifier heads; add CLASSIFIER <head.gguf> to its Modelfile", req.Model)})
+	if msg := check(m, body); msg != "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
-
-	r, _, _, err := s.scheduleRunner(c.Request.Context(), m, []model.Capability{}, nil, req.KeepAlive, nil)
+	r, _, _, err := s.scheduleRunner(c.Request.Context(), m, []model.Capability{}, nil, keepAlive, nil)
 	if err != nil {
-		handleScheduleError(c, req.Model, err)
+		handleScheduleError(c, name, err)
 		return
 	}
-	classifier, ok := r.(llm.Classifier)
+	proxy, ok := r.(llm.ClassifierProxy)
 	if !ok {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": fmt.Sprintf("the runner of model %q does not support classifier heads", req.Model)})
+		c.JSON(http.StatusNotImplemented, gin.H{"error": fmt.Sprintf("the runner of model %q does not serve %s", name, path)})
 		return
 	}
-	results, err := classifier.Classify(c.Request.Context(), inputs)
+	out, err := proxy.ClassifierPost(c.Request.Context(), path, body)
 	if err != nil {
 		status := http.StatusInternalServerError
 		var statusErr api.StatusError
@@ -120,14 +110,77 @@ func (s *Server) ClassifyHandler(c *gin.Context) {
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-	for i := range results {
-		results[i].Model = req.Model
-	}
-	if single {
-		c.JSON(http.StatusOK, results[0])
+	var v any
+	if err := json.Unmarshal(out, &v); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid answer from the runner: " + err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, results)
+	setModel := func(x any) {
+		if o, ok := x.(map[string]any); ok {
+			if _, has := o["model"]; has {
+				o["model"] = name
+			}
+		}
+	}
+	if arr, ok := v.([]any); ok {
+		for _, x := range arr {
+			setModel(x)
+		}
+	} else {
+		setModel(v)
+	}
+	c.JSON(http.StatusOK, v)
+}
+
+// ClassifyHandler answers the model's classifier heads (CLASSIFIER in its Modelfile) and/or questions given in
+// the request ("questions", answered by similarity to the answers' descriptions; needs OLLAMA_CLASSIFIER_FEATURES).
+func (s *Server) ClassifyHandler(c *gin.Context) {
+	s.classifierProxy(c, "/classify", func(m *Model, body map[string]any) string {
+		if body["input"] == nil {
+			return "input is required"
+		}
+		if _, q := body["questions"]; q {
+			if !envconfig.ClassifierFeatures() && !envconfig.ClassifierTrain() {
+				return "questions in the request need OLLAMA_CLASSIFIER_FEATURES=1"
+			}
+			return ""
+		}
+		if len(m.ClassifierPaths) == 0 {
+			return "model has no classifier heads; add CLASSIFIER <head.gguf> to its Modelfile, or send \"questions\""
+		}
+		return ""
+	})
+}
+
+// FeaturesHandler returns pooled hidden states of chosen layers (needs OLLAMA_CLASSIFIER_FEATURES).
+func (s *Server) FeaturesHandler(c *gin.Context) {
+	s.classifierProxy(c, "/features", func(m *Model, body map[string]any) string {
+		if !envconfig.ClassifierFeatures() && !envconfig.ClassifierTrain() {
+			return "features are disabled; start the server with OLLAMA_CLASSIFIER_FEATURES=1"
+		}
+		return ""
+	})
+}
+
+// OptionsHandler scores fixed answers after a prompt by their log-probabilities (needs OLLAMA_OPTIONS).
+func (s *Server) OptionsHandler(c *gin.Context) {
+	s.classifierProxy(c, "/options", func(m *Model, body map[string]any) string {
+		if !envconfig.Options() {
+			return "options are disabled; start the server with OLLAMA_OPTIONS=1"
+		}
+		return ""
+	})
+}
+
+// ClassifyTrainHandler fits a classifier head on labelled inputs and registers it with the running model
+// (needs OLLAMA_CLASSIFIER_TRAIN; heads requested with "save": true go to <models>/classifier-train).
+func (s *Server) ClassifyTrainHandler(c *gin.Context) {
+	s.classifierProxy(c, "/classify/train", func(m *Model, body map[string]any) string {
+		if !envconfig.ClassifierTrain() {
+			return "classifier training is disabled; start the server with OLLAMA_CLASSIFIER_TRAIN=1"
+		}
+		return ""
+	})
 }
 
 // TrainHandler trains a LoRA adapter on the loaded base model (llama-server --lora-train, enabled

@@ -226,6 +226,16 @@ var (
 	NoPrune = Bool("OLLAMA_NOPRUNE")
 	// LoRATrain enables POST /api/train (LoRA training on a loaded model); runners then load weights without repacking.
 	LoRATrain = Bool("OLLAMA_LORA_TRAIN")
+	// ClassifierFeatures serves POST /api/features (pooled hidden states) and questions given in /api/classify requests.
+	ClassifierFeatures = Bool("OLLAMA_CLASSIFIER_FEATURES")
+	// ClassifierTrain serves POST /api/classify/train (fit a classifier head live; implies OLLAMA_CLASSIFIER_FEATURES).
+	ClassifierTrain = Bool("OLLAMA_CLASSIFIER_TRAIN")
+	// Options serves POST /api/options (log-probabilities of fixed answers after a prompt).
+	Options = Bool("OLLAMA_OPTIONS")
+	// ClassifierCtx is the maximum tokens per input of the classifier, features and options contexts (0: llama-server's default).
+	ClassifierCtx = Uint("OLLAMA_CLASSIFIER_CTX", 0)
+	// ClassifierUbatch is the compute step of those contexts, which sizes their compute buffers (0: llama-server's default).
+	ClassifierUbatch = Uint("OLLAMA_CLASSIFIER_UBATCH", 0)
 	// SpecType selects a draft-free speculative decoder (ngram-cache, ngram-mod, ngram-simple, ngram-map-k, ngram-map-k4v) for models without an MTP head or draft model.
 	SpecType = String("OLLAMA_SPEC_TYPE")
 	// SchedSpread allows scheduling models across all GPUs.
@@ -337,6 +347,11 @@ func AsMap() map[string]EnvVar {
 		"OLLAMA_NOHISTORY":            {"OLLAMA_NOHISTORY", NoHistory(), "Do not preserve readline history"},
 		"OLLAMA_NOPRUNE":              {"OLLAMA_NOPRUNE", NoPrune(), "Do not prune model blobs on startup"},
 		"OLLAMA_LORA_TRAIN":           {"OLLAMA_LORA_TRAIN", LoRATrain(), "Enable LoRA training on loaded models (POST /api/train)"},
+		"OLLAMA_CLASSIFIER_FEATURES":  {"OLLAMA_CLASSIFIER_FEATURES", ClassifierFeatures(), "Serve POST /api/features and questions given in /api/classify requests"},
+		"OLLAMA_CLASSIFIER_TRAIN":     {"OLLAMA_CLASSIFIER_TRAIN", ClassifierTrain(), "Serve POST /api/classify/train (fit a classifier head live)"},
+		"OLLAMA_OPTIONS":              {"OLLAMA_OPTIONS", Options(), "Serve POST /api/options (log-probabilities of fixed answers after a prompt)"},
+		"OLLAMA_CLASSIFIER_CTX":       {"OLLAMA_CLASSIFIER_CTX", ClassifierCtx(), "Maximum tokens per input of the classifier, features and options contexts"},
+		"OLLAMA_CLASSIFIER_UBATCH":    {"OLLAMA_CLASSIFIER_UBATCH", ClassifierUbatch(), "Compute step of the classifier contexts (sizes their compute buffers)"},
 		"OLLAMA_SPEC_TYPE":            {"OLLAMA_SPEC_TYPE", SpecType(), "Draft-free speculative decoding for models without a drafter (ngram-cache, ngram-mod, ngram-simple, ngram-map-k, ngram-map-k4v); draft length from draft_num_predict"},
 		"OLLAMA_NUM_PARALLEL":         {"OLLAMA_NUM_PARALLEL", NumParallel(), "Maximum number of parallel requests"},
 		"OLLAMA_ORIGINS":              {"OLLAMA_ORIGINS", AllowedOrigins(), "A comma separated list of allowed origins"},

@@ -85,6 +85,11 @@ type LlamaServerConfig struct {
 	DraftModelShardPaths []string
 	Classifiers          []string // GGUF classifier heads (llama-server --classifier)
 	LoRATrain            bool     // enable LoRA training on the loaded model (llama-server --lora-train)
+	ClassifierFeatures   bool     // llama-server --features (POST /features, questions in /classify)
+	ClassifierTrain      bool     // llama-server --classifier-train (POST /classify/train)
+	Options              bool     // llama-server --options (POST /options)
+	ClassifierCtx        int      // llama-server --classifier-ctx (0: its default)
+	ClassifierUbatch     int      // llama-server --classifier-ubatch (0: its default)
 }
 
 // LoadModel loads GGUF model metadata from disk.
