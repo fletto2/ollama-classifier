@@ -21,7 +21,7 @@ curl localhost:11434/api/classify -d '{"model": "my-model", "input": "text"}'
 
 | route | llama-server endpoint | setting |
 |---|---|---|
-| `POST /api/classify` with `"questions"` | `/classify`, questions answered by similarity to their answers' descriptions, no head needed | `OLLAMA_CLASSIFIER_FEATURES=1` |
+| `POST /api/classify` with `"questions"` | `/classify`, questions answered by similarity to their answers' descriptions or example texts, no head needed | `OLLAMA_CLASSIFIER_FEATURES=1` |
 | `POST /api/features` | `/features`, pooled hidden states of chosen layers | `OLLAMA_CLASSIFIER_FEATURES=1` |
 | `POST /api/options` | `/options`, log-probabilities of fixed answers after a prompt | `OLLAMA_OPTIONS=1` |
 | `POST /api/classify/train` | `/classify/train`, fit a head and register it live (`"save": true` writes it to `<models>/classifier-train`) | `OLLAMA_CLASSIFIER_TRAIN=1` |
