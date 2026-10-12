@@ -76,9 +76,10 @@ index 225b218d7..e5436eb22 100644
          case LLAMA_CONTEXT_TYPE_DEFAULT: return LLM_GRAPH_TYPE_DEFAULT;
          case LLAMA_CONTEXT_TYPE_MTP    : return LLM_GRAPH_TYPE_DECODER_MTP;
      }
-@@ -2176,7 +2177,7 @@ uint32_t llama_context::output_reserve(int32_t n_outputs) {
+@@ -2176,8 +2177,8 @@ uint32_t llama_context::output_reserve(int32_t n_outputs) {
      const auto n_embd     = hparams.n_embd;
      const auto n_embd_out = hparams.n_embd_out();
+     const auto n_embd_nextn = hparams.n_embd_nextn();
  
 -    bool has_logits     = true;
 +    bool has_logits     = cparams.ctx_type != LLAMA_CONTEXT_TYPE_DECISION;
