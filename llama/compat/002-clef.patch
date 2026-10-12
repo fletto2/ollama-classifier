@@ -21,7 +21,7 @@ index 9a71a33ff..42df02bbb 100644
      // TODO: maybe improve this in the future
      const auto decision_type = common_get_decision_type(model);
 -    if (decision_type == COMMON_DECISION_TYPE_LAYA || decision_type == COMMON_DECISION_TYPE_KEV || decision_type == COMMON_DECISION_TYPE_CLEF ||
--        decision_type == COMMON_DECISION_TYPE_LFM2_D1_OMNI) {
+-        decision_type == COMMON_DECISION_TYPE_LFM2_D1_OMNI || decision_type == COMMON_DECISION_TYPE_VLLM_DECISION2) {
 +    if (common_decision_head_external(model)) {
 +        params.embedding = cparams.embeddings = true;
 +        cparams.ctx_type = LLAMA_CONTEXT_TYPE_DECISION;
@@ -33,7 +33,7 @@ index 9a71a33ff..42df02bbb 100644
 +        params.n_outputs_max = cparams.n_outputs_max = n_ctx;
 +        params.n_outputs_max_per_seq = cparams.n_outputs_max_per_seq = 1;
 +    } else if (decision_type == COMMON_DECISION_TYPE_LAYA || decision_type == COMMON_DECISION_TYPE_KEV || decision_type == COMMON_DECISION_TYPE_CLEF ||
-+               decision_type == COMMON_DECISION_TYPE_LFM2_D1_OMNI) {
++               decision_type == COMMON_DECISION_TYPE_LFM2_D1_OMNI || decision_type == COMMON_DECISION_TYPE_VLLM_DECISION2) {
          params.embedding    = true;
          params.pooling_type = LLAMA_POOLING_TYPE_NONE;
  
