@@ -90,6 +90,9 @@ type LlamaServerConfig struct {
 	Options              bool     // llama-server --options (POST /options)
 	ClassifierCtx        int      // llama-server --classifier-ctx (0: its default)
 	ClassifierUbatch     int      // llama-server --classifier-ubatch (0: its default)
+	MoESelectionBias     string   // llama-server --moe-selection-bias (file)
+	MoEResident          string   // llama-server --moe-resident (file)
+	MoETailSkip          string   // llama-server --moe-tail-skip (rank; empty: off)
 }
 
 // IsLlamaCPP reports whether the server is backed by the llama.cpp

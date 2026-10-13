@@ -53,6 +53,15 @@ func appendClassifierArgs(params []string, c LlamaServerConfig) []string {
 	if c.ClassifierUbatch > 0 {
 		params = append(params, "--classifier-ubatch", strconv.Itoa(c.ClassifierUbatch))
 	}
+	// MoE expert routing for caching (llama.cpp-classifier): selection bias and tail skip
+	if c.MoESelectionBias != "" {
+		params = append(params, "--moe-selection-bias", c.MoESelectionBias)
+	}
+	if c.MoETailSkip != "" {
+		if _, err := strconv.Atoi(c.MoETailSkip); err == nil && c.MoEResident != "" {
+			params = append(params, "--moe-resident", c.MoEResident, "--moe-tail-skip", c.MoETailSkip)
+		}
+	}
 	return params
 }
 
