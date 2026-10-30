@@ -62,6 +62,9 @@ func appendClassifierArgs(params []string, c LlamaServerConfig) []string {
 			params = append(params, "--moe-resident", c.MoEResident, "--moe-tail-skip", c.MoETailSkip)
 		}
 	}
+	if c.ResidCut != "" {
+		params = append(params, "--resid-cut", c.ResidCut)
+	}
 	return params
 }
 

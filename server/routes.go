@@ -2928,6 +2928,7 @@ func llamaServerConfigForModel(m *Model) llm.LlamaServerConfig {
 		ClassifierCtx:        int(envconfig.ClassifierCtx()),
 		ClassifierUbatch:     int(envconfig.ClassifierUbatch()),
 		MoESelectionBias:     envconfig.MoESelectionBias(),
+		ResidCut:             envconfig.ResidCut(),
 		MoEResident:          envconfig.MoEResident(),
 		MoETailSkip:          envconfig.MoETailSkip(),
 	}

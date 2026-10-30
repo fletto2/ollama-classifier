@@ -246,6 +246,9 @@ var (
 	// MoETailSkip: of the experts a token selects, those at rank >= N that are not resident get weight 0
 	// (llama-server --moe-tail-skip); empty = off.
 	MoETailSkip = String("OLLAMA_MOE_TAIL_SKIP")
+	// ResidCut is a GGUF of per-layer residual cuts (directions, centre, threshold) applied after those layers
+	// (llama-server --resid-cut), e.g. to remove a language's direction from ordinary tokens.
+	ResidCut = String("OLLAMA_RESID_CUT")
 	// SchedSpread allows scheduling models across all GPUs.
 	SchedSpread = Bool("OLLAMA_SCHED_SPREAD")
 	// ContextLength sets the default context length
@@ -364,6 +367,7 @@ func AsMap() map[string]EnvVar {
 		"OLLAMA_MOE_SELECTION_BIAS":   {"OLLAMA_MOE_SELECTION_BIAS", MoESelectionBias(), "MoE expert selection bias file (float32, layers x experts), added to the router probabilities for choosing experts only"},
 		"OLLAMA_MOE_RESIDENT":         {"OLLAMA_MOE_RESIDENT", MoEResident(), "MoE resident-expert file (float32, layers x experts, > 0 = resident) for OLLAMA_MOE_TAIL_SKIP"},
 		"OLLAMA_MOE_TAIL_SKIP":        {"OLLAMA_MOE_TAIL_SKIP", MoETailSkip(), "Skip non-resident MoE experts at rank >= N of the selected ones (needs OLLAMA_MOE_RESIDENT)"},
+		"OLLAMA_RESID_CUT":            {"OLLAMA_RESID_CUT", ResidCut(), "Residual cut file (GGUF: per-layer directions, centre and threshold) applied after those layers"},
 		"OLLAMA_NUM_PARALLEL":         {"OLLAMA_NUM_PARALLEL", NumParallel(), "Maximum number of parallel requests"},
 		"OLLAMA_ORIGINS":              {"OLLAMA_ORIGINS", AllowedOrigins(), "A comma separated list of allowed origins"},
 		"OLLAMA_SCHED_SPREAD":         {"OLLAMA_SCHED_SPREAD", SchedSpread(), "Always schedule model across all GPUs"},

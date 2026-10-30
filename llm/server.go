@@ -93,6 +93,7 @@ type LlamaServerConfig struct {
 	MoESelectionBias     string   // llama-server --moe-selection-bias (file)
 	MoEResident          string   // llama-server --moe-resident (file)
 	MoETailSkip          string   // llama-server --moe-tail-skip (rank; empty: off)
+	ResidCut             string   // llama-server --resid-cut (file)
 }
 
 // IsLlamaCPP reports whether the server is backed by the llama.cpp
