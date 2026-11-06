@@ -40,6 +40,8 @@ or call `POST /api/train`. This trains an adapter on the running base model and 
 - `BASE` must be a GGUF model without adapters, and `NEW` must be a different name; an existing model called `NEW` is replaced.
 - Recurrent/hybrid (e.g. Qwen3.5), MoE and diffusion models can't be trained: some of their ops have no backward pass.
 
+**Event script:** `OLLAMA_EVENT_SCRIPT=/path/to/program` runs a program on `request_done`, `request_error`, `model_load`, `model_error` and `model_unload`; `OLLAMA_EVENT_FILTER=request_done,request_error` limits it to those events. It runs in the background with no shell, is killed after 30 s, and an event is dropped while 8 scripts are running, so it cannot hold up a request. Prompt and response text is never passed. The arguments are fixed, and new ones are only added at the end: 1 event, 2 model, 3 endpoint (`generate`, `chat`, empty for model events), 4 prompt tokens, 5 of those from the cache, 6 generated tokens, 7 prompt tokens/s, 8 generated tokens/s, 9 total ms, 10 load ms, 11 KV cache size in tokens, 12 KV cache used in tokens, 13 KV cache type, 14 memory in bytes, 15 VRAM in bytes, 16 done reason, 17 error.
+
 **Speculative decoding without a draft model:** `OLLAMA_SPEC_TYPE=ngram-cache` (or `ngram-mod`, `ngram-simple`, `ngram-map-k`, `ngram-map-k4v`) makes runners draft from n-grams already in the prompt and output, for models that have no MTP head or draft model. The `draft_num_predict` option sets the draft length (default 4). Output is unchanged under greedy sampling. It pays on output that copies the input (rewritten code or listings); on free text it is about neutral.
 
 ## What differs from upstream Ollama

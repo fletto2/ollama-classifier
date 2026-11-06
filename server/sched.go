@@ -543,6 +543,7 @@ func (pending *LlmRequest) useLoadedRunner(runner *runnerRef, finished chan *Llm
 // load creates a new model based on req and loads it. If requireFull is true then the model must be loaded fully onto GPUs
 // (if any). Returns whether the scheduler needs to evict a model to make this one fit.
 func (s *Scheduler) load(req *LlmRequest, systemInfo ml.SystemInfo, gpus []ml.DeviceInfo, requireFull bool) bool {
+	loadStart := time.Now()
 	numParallel := max(int(envconfig.NumParallel()), 1)
 	completion := req.model.CheckCapabilities(model.CapabilityCompletion) == nil
 
@@ -792,12 +793,17 @@ iGPUScan:
 		defer runner.refMu.Unlock()
 		if err = llama.WaitUntilRunning(req.ctx); err != nil {
 			slog.Error("error loading llama server", "error", err)
+			emitEvent(Event{Name: EventModelError, Model: req.model.ShortName, Error: err.Error()})
 			req.errCh <- err
 			slog.Debug("triggering expiration for failed load", "runner", runner)
 			s.expiredCh <- runner
 			return
 		}
 		slog.Debug("finished setting up", "runner", runner)
+		emitEvent(Event{
+			Name: EventModelLoad, Model: req.model.ShortName, Load: time.Since(loadStart),
+			ContextLen: llama.ContextLength(), TotalBytes: runner.totalSize, VRAMBytes: runner.vramSize,
+		})
 		if runner.pid < 0 {
 			runner.pid = llama.Pid()
 		}
@@ -1418,6 +1424,9 @@ func (runner *runnerRef) unload() {
 	}
 	if runner.llama != nil {
 		runner.llama.Close()
+		if runner.model != nil {
+			emitEvent(Event{Name: EventModelUnload, Model: runner.model.ShortName, TotalBytes: runner.totalSize, VRAMBytes: runner.vramSize})
+		}
 	}
 	runner.model = nil
 	runner.Options = nil

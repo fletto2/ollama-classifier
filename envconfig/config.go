@@ -238,6 +238,10 @@ var (
 	ClassifierUbatch = Uint("OLLAMA_CLASSIFIER_UBATCH", 0)
 	// SpecType selects a draft-free speculative decoder (ngram-cache, ngram-mod, ngram-simple, ngram-map-k, ngram-map-k4v) for models without an MTP head or draft model.
 	SpecType = String("OLLAMA_SPEC_TYPE")
+	// EventScript is a program run on server events (see server/events.go).
+	EventScript = String("OLLAMA_EVENT_SCRIPT")
+	// EventFilter is a comma-separated list of the events that run EventScript; empty means all.
+	EventFilter = String("OLLAMA_EVENT_FILTER")
 	// MoESelectionBias is a raw float32 file (layers x experts) added to the router probabilities of MoE models for
 	// choosing experts only (llama-server --moe-selection-bias), e.g. to favour the experts kept in a cache.
 	MoESelectionBias = String("OLLAMA_MOE_SELECTION_BIAS")
@@ -363,6 +367,8 @@ func AsMap() map[string]EnvVar {
 		"OLLAMA_OPTIONS":              {"OLLAMA_OPTIONS", Options(), "Serve POST /api/options (log-probabilities of fixed answers after a prompt)"},
 		"OLLAMA_CLASSIFIER_CTX":       {"OLLAMA_CLASSIFIER_CTX", ClassifierCtx(), "Maximum tokens per input of the classifier, features and options contexts"},
 		"OLLAMA_CLASSIFIER_UBATCH":    {"OLLAMA_CLASSIFIER_UBATCH", ClassifierUbatch(), "Compute step of the classifier contexts (sizes their compute buffers)"},
+		"OLLAMA_EVENT_SCRIPT":         {"OLLAMA_EVENT_SCRIPT", EventScript(), "Program run on server events, with fixed positional arguments (tokens, tokens/s, KV cache, errors)"},
+		"OLLAMA_EVENT_FILTER":         {"OLLAMA_EVENT_FILTER", EventFilter(), "Comma-separated events that run OLLAMA_EVENT_SCRIPT: request_done, request_error, model_load, model_error, model_unload (default: all)"},
 		"OLLAMA_SPEC_TYPE":            {"OLLAMA_SPEC_TYPE", SpecType(), "Draft-free speculative decoding for models without a drafter (ngram-cache, ngram-mod, ngram-simple, ngram-map-k, ngram-map-k4v); draft length from draft_num_predict"},
 		"OLLAMA_MOE_SELECTION_BIAS":   {"OLLAMA_MOE_SELECTION_BIAS", MoESelectionBias(), "MoE expert selection bias file (float32, layers x experts), added to the router probabilities for choosing experts only"},
 		"OLLAMA_MOE_RESIDENT":         {"OLLAMA_MOE_RESIDENT", MoEResident(), "MoE resident-expert file (float32, layers x experts, > 0 = resident) for OLLAMA_MOE_TAIL_SKIP"},

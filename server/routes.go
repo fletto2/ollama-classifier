@@ -748,6 +748,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 			thinkingClose = thinkingCloseForCompletion(builtinParser, thinkTagParser)
 		}
 
+		ev := requestEvent("generate", req.Model, r)
 		if err := r.Completion(ctx, llm.CompletionRequest{
 			Prompt:          prompt,
 			Media:           media,
@@ -802,6 +803,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 				res.DoneReason = cr.DoneReason.String()
 				res.TotalDuration = time.Since(checkpointStart)
 				res.LoadDuration = checkpointLoaded.Sub(checkpointStart)
+				ev.done(res.Metrics, res.DoneReason, res.TotalDuration, res.LoadDuration)
 
 				if !req.Raw {
 					tokens, err := r.Tokenize(c.Request.Context(), prompt+sb.String())
@@ -827,6 +829,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 			ch <- res
 		}); err != nil {
 			if parserErr == nil {
+				ev.fail(err)
 				s.sched.expireRunnersForRuntimeOOM(m, err)
 				var serr api.StatusError
 				if errors.As(err, &serr) {
@@ -3325,6 +3328,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 
 		var parserErr error
 
+		ev := requestEvent("chat", req.Model, r)
 		err := r.Completion(ctx, llm.CompletionRequest{
 			Prompt:          prompt,
 			Media:           media,
@@ -3358,6 +3362,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 				res.DoneReason = r.DoneReason.String()
 				res.TotalDuration = time.Since(checkpointStart)
 				res.LoadDuration = checkpointLoaded.Sub(checkpointStart)
+				ev.done(res.Metrics, res.DoneReason, res.TotalDuration, res.LoadDuration)
 			}
 
 			if builtinParser != nil {
@@ -3432,6 +3437,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 			return
 		}
 		if err != nil {
+			ev.fail(err)
 			s.sched.expireRunnersForRuntimeOOM(m, err)
 			var serr api.StatusError
 			if errors.As(err, &serr) {
@@ -3501,6 +3507,7 @@ func (s *Server) handleNativeChat(c *gin.Context, req api.ChatRequest, m *Model,
 	go func() {
 		defer close(ch)
 
+		ev := requestEvent("chat", req.Model, r)
 		err := r.Chat(c.Request.Context(), nativeReq, func(r llm.ChatResponse) {
 			res := api.ChatResponse{
 				Model:     req.Model,
@@ -3525,11 +3532,13 @@ func (s *Server) handleNativeChat(c *gin.Context, req api.ChatRequest, m *Model,
 				res.DoneReason = r.DoneReason.String()
 				res.TotalDuration = time.Since(checkpointStart)
 				res.LoadDuration = checkpointLoaded.Sub(checkpointStart)
+				ev.done(res.Metrics, res.DoneReason, res.TotalDuration, res.LoadDuration)
 			}
 
 			ch <- res
 		})
 		if err != nil {
+			ev.fail(err)
 			s.sched.expireRunnersForRuntimeOOM(m, err)
 			var serr api.StatusError
 			if errors.As(err, &serr) {
