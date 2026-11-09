@@ -59,12 +59,12 @@ index 525627fea..f4e38eedb 100644
  
          const bool from_mapping = use_mmap || lazy.has(cur);
  
-diff --git a/tools/mtmd/clip.cpp b/tools/mtmd/clip.cpp
-index 0a3b3c98d..81bf03091 100644
---- a/tools/mtmd/clip.cpp
-+++ b/tools/mtmd/clip.cpp
-@@ -12,6 +12,8 @@
- #include "ggml-cpu.h"
+diff --git a/tools/mtmd/mtmd-model.cpp b/tools/mtmd/mtmd-model.cpp
+index ae7a942ac..c18fb8627 100644
+--- a/tools/mtmd/mtmd-model.cpp
++++ b/tools/mtmd/mtmd-model.cpp
+@@ -8,6 +8,8 @@
+ #include "ggml-backend.h"
  #include "gguf.h"
  
 +#include "llama-ollama-compat.h"
@@ -72,7 +72,7 @@ index 0a3b3c98d..81bf03091 100644
  #include <algorithm>
  #include <cassert>
  #include <cmath>
-@@ -1378,6 +1380,11 @@ struct clip_model_loader {
+@@ -65,6 +67,11 @@ struct mtmd_model_loader {
  
          ctx_meta.reset(meta);
  
@@ -84,7 +84,7 @@ index 0a3b3c98d..81bf03091 100644
          const int n_tensors = gguf_get_n_tensors(ctx_gguf.get());
  
          // print gguf info
-@@ -4824,6 +4831,7 @@ struct clip_model_loader {
+@@ -3515,6 +3522,7 @@ struct mtmd_model_loader {
                      auto it_off = tensor_offset.find(t->name);
                      GGML_ASSERT(it_off != tensor_offset.end() && "no offset for tensor");
                      const size_t offset = it_off->second;
@@ -92,19 +92,19 @@ index 0a3b3c98d..81bf03091 100644
                      fin.seekg(offset, std::ios::beg);
                      if (!fin) {
                          throw std::runtime_error(string_format("%s: failed to seek for tensor %s\n", __func__, t->name));
-@@ -8161,6 +8169,15 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
+@@ -4197,6 +4205,15 @@ size_t mtmd_model::cbx_read_tensor(const char * name, float * out, size_t n_max)
  }
  
- int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
-+    const auto projector_type = PROJECTOR_TYPE_NAMES.find(ctx->model.proj_type);
+ int mtmd_model::n_mmproj_embd() const {
++    const auto projector_type = PROJECTOR_TYPE_NAMES.find(proj_type);
 +    if (projector_type != PROJECTOR_TYPE_NAMES.end()) {
 +        if (int n = llama_ollama_compat::maybe_clip_mmproj_embd(
 +                projector_type->second.c_str(),
-+                ctx->model.hparams.projection_dim); n > 0) {
++                hparams.projection_dim); n > 0) {
 +            return n;
 +        }
 +    }
 +
-     switch (ctx->model.proj_type) {
+     switch (proj_type) {
          case PROJECTOR_TYPE_LDP:
-             return ctx->model.mm_model_block_1_block_2_1_b->ne[0];
+             return mm_model_block_1_block_2_1_b->ne[0];
