@@ -1,5 +1,5 @@
 diff --git a/src/llama-model-loader.cpp b/src/llama-model-loader.cpp
-index 525627fea..f4e38eedb 100644
+index 92efa9adb..c662880ba 100644
 --- a/src/llama-model-loader.cpp
 +++ b/src/llama-model-loader.cpp
 @@ -6,6 +6,7 @@
@@ -30,7 +30,7 @@ index 525627fea..f4e38eedb 100644
              // make sure there is no duplicated tensor names
              if (weights_map.find(tensor_name) != weights_map.end()) {
                  throw std::runtime_error(format("invalid model: tensor '%s' is duplicated", ggml_get_name(cur)));
-@@ -718,6 +725,9 @@ llama_model_loader::llama_model_loader(
+@@ -800,6 +807,9 @@ llama_model_loader::llama_model_loader(
          // Save tensors data offset info of the main file.
          for (ggml_tensor * cur = ggml_get_first_tensor(ctx); cur; cur = ggml_get_next_tensor(ctx, cur)) {
              std::string tensor_name = std::string(cur->name);
@@ -40,7 +40,7 @@ index 525627fea..f4e38eedb 100644
              // make sure there is no duplicated tensor names
              if (weights_map.find(tensor_name) != weights_map.end()) {
                  throw std::runtime_error(format("invalid model: tensor '%s' is duplicated", ggml_get_name(cur)));
-@@ -1580,6 +1590,10 @@ void llama_model_loader::unmap_weight(const llama_tensor_weight & w) const {
+@@ -1662,6 +1672,10 @@ void llama_model_loader::unmap_weight(const llama_tensor_weight & w) const {
  const void * llama_model_loader::load_data_range(const llama_tensor_weight & w, size_t offs, size_t size, void * buf) const {
      GGML_ASSERT(offs + size <= ggml_nbytes(w.tensor));
  
@@ -51,7 +51,7 @@ index 525627fea..f4e38eedb 100644
      const void * data = buf;
  
      if (use_mmap) {
-@@ -1746,6 +1760,7 @@ bool llama_model_loader::load_all_data(
+@@ -1828,6 +1842,7 @@ bool llama_model_loader::load_all_data(
          }
  
          size_t n_size = ggml_nbytes(cur);
@@ -60,7 +60,7 @@ index 525627fea..f4e38eedb 100644
          const bool from_mapping = use_mmap || lazy.has(cur);
  
 diff --git a/tools/mtmd/mtmd-model.cpp b/tools/mtmd/mtmd-model.cpp
-index ae7a942ac..c18fb8627 100644
+index 8a76e11b5..55c2bf46e 100644
 --- a/tools/mtmd/mtmd-model.cpp
 +++ b/tools/mtmd/mtmd-model.cpp
 @@ -8,6 +8,8 @@
@@ -84,15 +84,15 @@ index ae7a942ac..c18fb8627 100644
          const int n_tensors = gguf_get_n_tensors(ctx_gguf.get());
  
          // print gguf info
-@@ -3515,6 +3522,7 @@ struct mtmd_model_loader {
+@@ -3525,6 +3532,7 @@ struct mtmd_model_loader {
                      auto it_off = tensor_offset.find(t->name);
                      GGML_ASSERT(it_off != tensor_offset.end() && "no offset for tensor");
                      const size_t offset = it_off->second;
 +                    if (llama_ollama_compat::maybe_load_tensor(cur, fname.c_str(), offset, buft)) continue;
                      fin.seekg(offset, std::ios::beg);
                      if (!fin) {
-                         throw std::runtime_error(string_format("%s: failed to seek for tensor %s\n", __func__, t->name));
-@@ -4197,6 +4205,15 @@ size_t mtmd_model::cbx_read_tensor(const char * name, float * out, size_t n_max)
+                         throw std::runtime_error(mtmd_format("%s: failed to seek for tensor %s\n", __func__, t->name));
+@@ -4208,6 +4216,15 @@ size_t mtmd_model::cbx_read_tensor(const char * name, float * out, size_t n_max)
  }
  
  int mtmd_model::n_mmproj_embd() const {
