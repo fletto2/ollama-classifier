@@ -44,6 +44,10 @@ or call `POST /api/train`. This trains an adapter on the running base model and 
 
 **Speculative decoding without a draft model:** `OLLAMA_SPEC_TYPE=ngram-cache` (or `ngram-mod`, `ngram-simple`, `ngram-map-k`, `ngram-map-k4v`) makes runners draft from n-grams already in the prompt and output, for models that have no MTP head or draft model. The `draft_num_predict` option sets the draft length (default 4). Output is unchanged under greedy sampling. It pays on output that copies the input (rewritten code or listings); on free text it is about neutral.
 
+**MoE expert routing for expert caching:** `OLLAMA_MOE_SELECTION_BIAS=file` adds a per-layer bias (float32, layers × experts) to the router when choosing experts only, steering selection toward experts that are resident; `OLLAMA_MOE_RESIDENT=file` (> 0 = resident) with `OLLAMA_MOE_TAIL_SKIP=N` gives weight 0 to non-resident experts at rank ≥ N of the selected ones. Any MoE architecture; ignored with a warning on dense models (llama-server `--moe-selection-bias`, `--moe-resident`, `--moe-tail-skip`).
+
+**Residual cut, clamp and dynamic steer:** `OLLAMA_RESID_CUT=file.gguf` passes llama-server `--resid-cut`. After chosen layers it projects a few directions out of the hidden state (for tokens within a threshold), bounds a direction's projection to a range, or adds a steering vector gated per token by the hidden state's own projection, whichever the file's per-layer tensors define. Any architecture; see [llama.cpp-classifier's README](https://github.com/fletto2/llama.cpp-classifier#residual-cut---resid-cut) for the file format.
+
 ## What differs from upstream Ollama
 
 - **llama.cpp source:**
